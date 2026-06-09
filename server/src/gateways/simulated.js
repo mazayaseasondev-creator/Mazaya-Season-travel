@@ -9,8 +9,9 @@ import { config } from '../config.js';
 export const name = 'simulated';
 
 export async function createSession({ providerRef }) {
-  // Nothing to call out to — the "hosted page" is our own simulated page.
-  const redirectUrl = `${config.publicBaseUrl}/pages/visa-pay.html?ref=${encodeURIComponent(providerRef)}`;
+  // Nothing to call out to — the "hosted page" is our own simulated page, which
+  // works for any purchase (visa, hotel, …) via the payment reference.
+  const redirectUrl = `${config.publicBaseUrl}/pages/pay.html?ref=${encodeURIComponent(providerRef)}`;
   return { redirectUrl };
 }
 

@@ -16,6 +16,10 @@ const adminIdentifiers = (process.env.ADMIN_IDENTIFIERS || '')
 // credentials; 'ngenius' is the real Network International integration (Phase 4).
 const paymentProvider = process.env.PAYMENT_PROVIDER || (isProd ? 'ngenius' : 'simulated');
 
+// Hotel supplier (bedbank). 'simulated' is a built-in test supplier; 'hotelbeds'
+// is the real Hotelbeds/APItude integration (needs a commercial contract).
+const hotelSupplier = process.env.HOTEL_SUPPLIER || (isProd ? 'hotelbeds' : 'simulated');
+
 export const config = {
   port: parseInt(process.env.PORT || '4000', 10),
   isProd,
@@ -40,6 +44,12 @@ export const config = {
   maxDocumentsPerRequest: parseInt(process.env.MAX_DOCUMENTS_PER_REQUEST || '8', 10),
   // Public origin used to build payment return URLs. Defaults to localhost in dev.
   publicBaseUrl: process.env.PUBLIC_BASE_URL || `http://localhost:${parseInt(process.env.PORT || '4000', 10)}`,
+
+  // --- Phase 3: hotels ---
+  hotelSupplier,
+  // Secret used to sign supplier rate keys so quoted prices can be trusted when
+  // a customer hands a rate back at booking time. Falls back to JWT_SECRET.
+  rateKeySecret: process.env.RATE_KEY_SECRET || process.env.JWT_SECRET || 'dev-insecure-jwt-secret',
 };
 
 if (isProd && (config.jwtSecret.startsWith('dev-') || config.otpSecret.startsWith('dev-'))) {

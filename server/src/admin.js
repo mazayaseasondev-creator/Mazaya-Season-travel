@@ -48,9 +48,37 @@ const ADMIN_SELECT = `
 // Counts per status, for the dashboard.
 adminRouter.get('/stats', async (_req, res, next) => {
   try {
-    const r = await query('select status, count(*)::int as count from visa_requests group by status');
-    const byStatus = Object.fromEntries(r.rows.map((x) => [x.status, x.count]));
-    res.json({ visaRequests: byStatus });
+    const visas = await query('select status, count(*)::int as count from visa_requests group by status');
+    const hotels = await query('select status, count(*)::int as count from hotel_bookings group by status');
+    res.json({
+      visaRequests: Object.fromEntries(visas.rows.map((x) => [x.status, x.count])),
+      hotelBookings: Object.fromEntries(hotels.rows.map((x) => [x.status, x.count])),
+    });
+  } catch (e) { next(e); }
+});
+
+// Read-only hotel booking list for the operations team.
+adminRouter.get('/hotel-bookings', async (req, res, next) => {
+  try {
+    const status = req.query.status;
+    const params = [];
+    let where = '';
+    if (status) { params.push(String(status)); where = 'where hb.status = $1'; }
+    const r = await query(
+      `select hb.*, u.email as user_email, u.mobile as user_mobile
+         from hotel_bookings hb join users u on u.id = hb.user_id
+         ${where} order by hb.created_at desc`,
+      params,
+    );
+    res.json({
+      bookings: r.rows.map((b) => ({
+        id: b.id, status: b.status, hotelName: b.hotel_name, city: b.city,
+        roomName: b.room_name, leadGuest: b.lead_guest, checkIn: b.check_in, checkOut: b.check_out,
+        nights: b.nights, amount: b.amount_cents / 100, currency: b.currency,
+        supplierRef: b.supplier_ref, voucherCode: b.voucher_code,
+        customer: { id: b.user_id, email: b.user_email, mobile: b.user_mobile },
+      })),
+    });
   } catch (e) { next(e); }
 });
 

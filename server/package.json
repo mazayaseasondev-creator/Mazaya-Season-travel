@@ -9,7 +9,8 @@
     "migrate": "node -e \"import('./src/db.js').then(m=>m.migrate()).then(()=>{console.log('migrated');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})\"",
     "smoke": "node test/smoke.mjs",
     "smoke:visas": "node test/visas.smoke.mjs",
-    "test": "node test/smoke.mjs && node test/visas.smoke.mjs"
+    "smoke:hotels": "node test/hotels.smoke.mjs",
+    "test": "node test/smoke.mjs && node test/visas.smoke.mjs && node test/hotels.smoke.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

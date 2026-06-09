@@ -1,4 +1,4 @@
-# Mazaya Season Travel — Backend (Phases 1–2)
+# Mazaya Season Travel — Backend (Phases 1–3)
 
 A Node.js + Express server backed by PostgreSQL, delivering the roadmap in
 `docs/BACKEND-PLAN.md`.
@@ -17,8 +17,15 @@ A Node.js + Express server backed by PostgreSQL, delivering the roadmap in
   ready for credentials.
 - An **admin queue** to review requests and set their status.
 
-> Flights, hotels and tours supplier APIs are **not** part of these phases —
-> see the roadmap in `docs/BACKEND-PLAN.md`.
+**Phase 3 — Hotels**
+- **Search → book → pay → voucher → cancel** through a provider-agnostic hotel
+  supplier: a built-in **simulated** bedbank for dev/test, plus a real
+  **Hotelbeds** stub ready for credentials.
+- Quoted rates are signed (tamper-evident) so prices can be trusted at booking
+  time; payment reuses the Phase 2 gateway and issues a voucher on capture.
+
+> Flights and tours supplier APIs are **not** part of these phases — see the
+> roadmap in `docs/BACKEND-PLAN.md`.
 
 ## Requirements
 
@@ -70,13 +77,27 @@ Set `EXPOSE_OTP=false` (or `NODE_ENV=production`) to turn this off.
 | GET    | `/api/payments/:ref`                | Payment status (owner/admin)                     |
 | POST   | `/api/payments/:ref/confirm`        | Complete a **simulated** payment (owner)         |
 
-### Admin (Phase 2, role `admin`)
-| Method | Path                       | Purpose                                |
-|--------|----------------------------|----------------------------------------|
-| GET    | `/api/admin/stats`         | Request counts by status               |
-| GET    | `/api/admin/visas`         | Visa queue, optional `?status=`        |
-| GET    | `/api/admin/visas/:id`     | One request with documents             |
-| PATCH  | `/api/admin/visas/:id`     | Body `{ status?, note? }` — update     |
+### Hotels (Phase 3)
+| Method | Path                                | Purpose                                          |
+|--------|-------------------------------------|--------------------------------------------------|
+| GET    | `/api/hotels/search`                | `?city=&checkIn=&checkOut=&guests=` (public)     |
+| POST   | `/api/hotels/bookings`              | Hold a room from a `rateKey` (auth)              |
+| GET    | `/api/hotels/bookings`              | My bookings (auth)                               |
+| GET    | `/api/hotels/bookings/:id`          | One booking (owner/admin)                        |
+| POST   | `/api/hotels/bookings/:id/cancel`   | Cancel a booking (owner)                         |
+| POST   | `/api/payments/hotel/:id/checkout`  | Pay for a booking — returns gateway `redirectUrl`|
+
+Paying a hotel booking confirms it with the supplier and issues a voucher; the
+status flow is `pending_payment → confirmed → cancelled`.
+
+### Admin (role `admin`)
+| Method | Path                          | Purpose                                |
+|--------|-------------------------------|----------------------------------------|
+| GET    | `/api/admin/stats`            | Visa + hotel counts by status          |
+| GET    | `/api/admin/visas`            | Visa queue, optional `?status=`        |
+| GET    | `/api/admin/visas/:id`        | One request with documents             |
+| PATCH  | `/api/admin/visas/:id`        | Body `{ status?, note? }` — update     |
+| GET    | `/api/admin/hotel-bookings`   | Hotel bookings, optional `?status=`    |
 
 Grant admin access by listing an email/mobile in `ADMIN_IDENTIFIERS`; that user
 becomes an admin the next time they log in.
@@ -87,9 +108,10 @@ Paying a request (simulated or real) advances it to `in_review`.
 ## Tests
 
 ```bash
-npm test            # runs both smoke suites
-npm run smoke       # Phase 1: auth flow
-npm run smoke:visas # Phase 2: visa requests, uploads, payment, admin queue
+npm test             # runs all smoke suites
+npm run smoke        # Phase 1: auth flow
+npm run smoke:visas  # Phase 2: visa requests, uploads, payment, admin queue
+npm run smoke:hotels # Phase 3: hotel search, booking, payment, voucher, cancel
 ```
 
 ## Security notes
@@ -101,6 +123,8 @@ npm run smoke:visas # Phase 2: visa requests, uploads, payment, admin queue
   restricted to PDFs/images and size-limited (`MAX_UPLOAD_BYTES`).
 - The **simulated** payment gateway never charges a card — the server refuses to
   start in production with it (set `PAYMENT_PROVIDER=ngenius`).
+- Hotel rate keys are HMAC-signed so a customer cannot alter the quoted price
+  between search and booking.
 - Set strong `JWT_SECRET` and `OTP_SECRET` in production — the server refuses to
   start in production with the default dev secrets.
 - Before launch: enable a Content-Security-Policy, put the server behind HTTPS,

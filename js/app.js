@@ -137,14 +137,17 @@ async function requireSession(){
   return u;
 }
 
-const VISA_STATUS_LABEL = {
+const STATUS_LABEL = {
   awaiting_payment: 'Awaiting payment',
   in_review: 'In review',
   approved: 'Approved',
   rejected: 'Rejected',
   cancelled: 'Cancelled',
+  pending_payment: 'Pending payment',
+  confirmed: 'Confirmed',
 };
-function statusBadge(s){ return `<span class="badge">${VISA_STATUS_LABEL[s] || s}</span>`; }
+const VISA_STATUS_LABEL = STATUS_LABEL; // back-compat alias
+function statusBadge(s){ return `<span class="badge">${STATUS_LABEL[s] || s}</span>`; }
 function money(amount, currency){
   return (currency || 'AED') + ' ' + Number(amount).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
@@ -228,8 +231,11 @@ async function payVisa(id){
   location.href = r.data.redirectUrl; // hosted payment page (simulated in dev)
 }
 
-/* --- Simulated hosted payment page (pages/visa-pay.html) --- */
-async function initVisaPay(){
+/* --- Simulated hosted payment page (pages/pay.html), shared by every product --- */
+function paymentReturnPage(kind){
+  return kind === 'hotel' ? 'hotel-bookings.html' : 'visa-status.html';
+}
+async function initPay(){
   if (!(await requireSession())) return;
   const ref = new URLSearchParams(location.search).get('ref');
   const box = document.getElementById('pay-box');
@@ -237,21 +243,109 @@ async function initVisaPay(){
   const r = await apiGet('/api/payments/' + encodeURIComponent(ref));
   if (!r.ok){ box.innerHTML = 'Payment not found.'; return; }
   const p = r.data.payment;
+  const back = paymentReturnPage(p.kind);
   box.innerHTML = `
     <p class="price">${esc(money(p.amount, p.currency))}</p>
     <p style="color:#667">Test payment — no real card is charged.</p>
     ${p.status === 'paid'
-      ? '<p>This payment is already complete.</p><a class="btn primary" href="visa-status.html">Back to my visas</a>'
+      ? `<p>This payment is already complete.</p><a class="btn primary" href="${back}">Continue</a>`
       : `<button class="btn primary" id="pay-confirm">Pay now (TEST)</button>
-         <a class="btn ghost" href="visa-status.html" style="margin-left:10px">Cancel</a>`}`;
+         <a class="btn ghost" href="${back}" style="margin-left:10px">Cancel</a>`}`;
   const btn = document.getElementById('pay-confirm');
   if (btn) btn.addEventListener('click', async () => {
     btn.disabled = true;
     const c = await api(`/api/payments/${encodeURIComponent(ref)}/confirm`, {});
     if (!c.ok){ toast(c.data.error || 'Payment failed'); btn.disabled = false; return; }
     toast('Payment successful');
-    location.href = 'visa-status.html';
+    location.href = back;
   });
+}
+
+/* --- Hotel search + booking (pages/hotels.html) --- */
+function initHotels(){
+  // Prefill sensible default dates (today+30 / +33) so the form is ready to use.
+  const ci = document.getElementById('h-checkin');
+  const co = document.getElementById('h-checkout');
+  if (ci && !ci.value){ const d = new Date(Date.now() + 30 * 864e5); ci.value = d.toISOString().slice(0, 10); }
+  if (co && !co.value){ const d = new Date(Date.now() + 33 * 864e5); co.value = d.toISOString().slice(0, 10); }
+}
+async function searchHotels(){
+  const city = (document.getElementById('h-city') || {}).value || '';
+  const checkIn = (document.getElementById('h-checkin') || {}).value || '';
+  const checkOut = (document.getElementById('h-checkout') || {}).value || '';
+  const guests = (document.getElementById('h-guests') || {}).value || '2';
+  const wrap = document.getElementById('hotel-results');
+  if (!wrap) return;
+  if (!city || !checkIn || !checkOut){ toast('Enter a city and dates'); return; }
+  wrap.innerHTML = '<div class="card pad">Searching…</div>';
+  const q = `?city=${encodeURIComponent(city)}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${encodeURIComponent(guests)}`;
+  const r = await apiGet('/api/hotels/search' + q);
+  if (!r.ok){ wrap.innerHTML = `<div class="card pad">${esc(r.data.error || 'Search failed')}</div>`; return; }
+  const { hotels = [], nights } = r.data;
+  if (!hotels.length){ wrap.innerHTML = '<div class="card pad">No hotels found.</div>'; return; }
+  wrap.innerHTML = hotels.map(h => `
+    <div class="card pad" style="margin-bottom:16px">
+      <h3 style="margin:0">${esc(h.name)} ${'★'.repeat(h.rating || 0)}</h3>
+      <p style="margin:4px 0;color:#667">${esc(h.city)} · ${nights} night(s)</p>
+      ${h.rooms.map(room => `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid #eef;padding:10px 0;flex-wrap:wrap">
+          <div><b>${esc(room.roomName)}</b><br><small style="color:#889">${esc(room.board)} · ${esc(money(room.nightlyPrice, room.currency))}/night</small></div>
+          <div style="text-align:right"><div class="price">${esc(money(room.totalPrice, room.currency))}</div>
+            <button class="btn primary" data-book-rate="${esc(room.rateKey)}" data-hotel="${esc(h.name)}">Book</button></div>
+        </div>`).join('')}
+    </div>`).join('');
+}
+async function bookHotelRate(rateKey, hotelName){
+  if (!(await currentUser())){ location.href = 'login.html'; return; }
+  const leadGuest = prompt(`Lead guest name for ${hotelName}:`);
+  if (!leadGuest) return;
+  let r;
+  try { r = await api('/api/hotels/bookings', { rateKey, leadGuest }); }
+  catch (e) { toast('Cannot reach the server.'); return; }
+  if (!r.ok){ toast(r.data.error || 'Could not create booking'); return; }
+  const pay = await api(`/api/payments/hotel/${r.data.booking.id}/checkout`, {});
+  if (!pay.ok){ toast(pay.data.error || 'Could not start payment'); return; }
+  location.href = pay.data.redirectUrl;
+}
+
+/* --- My hotel bookings (pages/hotel-bookings.html) --- */
+async function initHotelBookings(){
+  if (!(await requireSession())) return;
+  await renderHotelBookings();
+}
+async function renderHotelBookings(){
+  const wrap = document.getElementById('hotel-booking-list');
+  if (!wrap) return;
+  const r = await apiGet('/api/hotels/bookings');
+  if (!r.ok){ wrap.innerHTML = '<div class="card pad">Could not load your bookings.</div>'; return; }
+  const bookings = r.data.bookings || [];
+  if (!bookings.length){ wrap.innerHTML = '<div class="card pad">No hotel bookings yet. <a href="hotels.html">Search hotels</a>.</div>'; return; }
+  wrap.innerHTML = bookings.map(b => `
+    <div class="card pad" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><h3 style="margin:0">${esc(b.hotelName)}</h3>
+          <p style="margin:4px 0;color:#667">${esc(b.city)} · ${esc(b.roomName)} · ${esc(b.checkIn)} → ${esc(b.checkOut)} (${b.nights} night(s))</p>
+          <p style="margin:4px 0;color:#667">Guest: ${esc(b.leadGuest)} · ${esc(money(b.amount, b.currency))}</p>
+          ${b.voucherCode ? `<p style="margin:4px 0"><b>Voucher:</b> ${esc(b.voucherCode)}</p>` : ''}</div>
+        <div>${statusBadge(b.status)}</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+        ${b.status === 'pending_payment' ? `<button class="btn primary" data-pay-hotel="${b.id}">Pay ${esc(money(b.amount, b.currency))}</button>` : ''}
+        ${(b.status === 'pending_payment' || b.status === 'confirmed') ? `<button class="btn ghost" data-cancel-hotel="${b.id}">Cancel</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+async function payHotelBooking(id){
+  const r = await api(`/api/payments/hotel/${id}/checkout`, {});
+  if (!r.ok){ toast(r.data.error || 'Could not start payment'); return; }
+  location.href = r.data.redirectUrl;
+}
+async function cancelHotelBooking(id){
+  if (!confirm('Cancel this booking?')) return;
+  const r = await api(`/api/hotels/bookings/${id}/cancel`, {});
+  if (!r.ok){ toast(r.data.error || 'Could not cancel'); return; }
+  toast('Booking cancelled');
+  renderHotelBookings();
 }
 
 /* --- Admin visa queue (admin/index.html) --- */
@@ -295,16 +389,42 @@ async function adminSetStatus(id, status){
   renderAdminVisas();
 }
 
-/* Delegated clicks for the Phase 2 pages (buttons are injected dynamically). */
+/* Admin hotel bookings (read-only list in admin/index.html). */
+async function initAdminHotels(){
+  const wrap = document.getElementById('admin-hotel-bookings');
+  if (!wrap) return;
+  const u = await currentUser();
+  if (!u || u.role !== 'admin'){ wrap.innerHTML = ''; return; }
+  const r = await apiGet('/api/admin/hotel-bookings');
+  if (!r.ok){ wrap.innerHTML = 'Could not load hotel bookings.'; return; }
+  const rows = (r.data.bookings || []).map(b => `
+    <tr>
+      <td>#${b.id}</td>
+      <td>${esc(b.leadGuest)}<br><small style="color:#889">${esc(b.customer.email || b.customer.mobile || '')}</small></td>
+      <td>${esc(b.hotelName)}<br><small style="color:#889">${esc(b.city)}</small></td>
+      <td>${esc(b.checkIn)} → ${esc(b.checkOut)}</td>
+      <td>${esc(money(b.amount, b.currency))}</td>
+      <td>${statusBadge(b.status)}</td>
+      <td>${esc(b.voucherCode || '—')}</td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Guest</th><th>Hotel</th><th>Dates</th><th>Amount</th><th>Status</th><th>Voucher</th></tr>${rows || '<tr><td colspan="7">No bookings yet.</td></tr>'}</table>`;
+}
+
+/* Delegated clicks for the Phase 2/3 pages (buttons are injected dynamically). */
 document.addEventListener('click', e => {
   const up = e.target.closest('[data-upload]'); if (up) uploadVisaDocs(up.dataset.upload);
   const pay = e.target.closest('[data-pay]'); if (pay) payVisa(pay.dataset.pay);
   const adm = e.target.closest('[data-admin-set]'); if (adm) adminSetStatus(adm.dataset.id, adm.dataset.adminSet);
+  const bk = e.target.closest('[data-book-rate]'); if (bk) bookHotelRate(bk.dataset.bookRate, bk.dataset.hotel);
+  const ph = e.target.closest('[data-pay-hotel]'); if (ph) payHotelBooking(ph.dataset.payHotel);
+  const ch = e.target.closest('[data-cancel-hotel]'); if (ch) cancelHotelBooking(ch.dataset.cancelHotel);
 });
 
 /* Page routing */
 const path = location.pathname;
 if (path.endsWith('/visas.html')) initVisaForm();
 if (path.endsWith('/visa-status.html')) initVisaStatus();
-if (path.endsWith('/visa-pay.html')) initVisaPay();
-if (path.includes('/admin/')) initAdminVisas();
+if (path.endsWith('/pay.html')) initPay();
+if (path.endsWith('/hotels.html')) initHotels();
+if (path.endsWith('/hotel-bookings.html')) initHotelBookings();
+if (path.includes('/admin/')) { initAdminVisas(); initAdminHotels(); }

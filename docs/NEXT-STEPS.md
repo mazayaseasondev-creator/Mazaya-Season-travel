@@ -5,7 +5,9 @@
 - ✅ **Phase 1 — Foundation:** server + PostgreSQL + real OTP login (`/server`).
 - ✅ **Phase 2 — Visas first (+ payments):** visa catalogue, customer requests,
   document upload, simulated N-Genius payment, and an admin review queue.
-- ⬜ **Phase 3 — Hotels → Flights → Tours** (supplier APIs).
+- ✅ **Phase 3 — Hotels:** search → book → pay → voucher → cancel via a
+  simulated bedbank (Hotelbeds stub ready), with an admin booking list.
+- ⬜ **Phase 3 (cont.) — Flights → Tours** (supplier APIs).
 - ⬜ **Phase 4 — Admin + go-live.**
 
 See `docs/BACKEND-PLAN.md` for the full roadmap and `server/README.md` for the

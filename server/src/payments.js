@@ -4,11 +4,13 @@ import { config } from './config.js';
 import { requireAuth } from './auth.js';
 import { gateway } from './gateways/index.js';
 import { loadVisaRequest } from './visas.js';
+import { loadHotelBooking, confirmHotelBooking } from './hotels.js';
 
 export const paymentsRouter = express.Router();
 paymentsRouter.use(requireAuth);
 
 function publicPayment(p) {
+  const kind = p.visa_request_id ? 'visa' : (p.hotel_booking_id ? 'hotel' : null);
   return {
     ref: p.provider_ref,
     provider: p.provider,
@@ -16,12 +18,37 @@ function publicPayment(p) {
     amount: p.amount_cents / 100,
     amountCents: p.amount_cents,
     currency: p.currency,
+    kind,
     visaRequestId: p.visa_request_id,
+    hotelBookingId: p.hotel_booking_id,
   };
 }
 
-// Start paying for a visa request: creates a payment and a gateway session, and
-// returns the URL the browser should be sent to in order to pay.
+// Create (or reuse a pending) payment for an item and open a gateway session.
+// `column` is a trusted literal chosen by the route, never user input.
+async function startCheckout({ user, column, itemId, amountCents, currency, description, returnUrl }, res) {
+  const existing = await query(
+    `select * from payments where ${column} = $1 and status = 'pending' order by created_at desc limit 1`,
+    [itemId],
+  );
+  let payment = existing.rows[0];
+  let providerRef = payment?.provider_ref;
+  if (!payment) {
+    providerRef = gateway.newRef();
+    const ins = await query(
+      `insert into payments (user_id, ${column}, provider, provider_ref, amount_cents, currency)
+       values ($1, $2, $3, $4, $5, $6) returning *`,
+      [user.id, itemId, gateway.name, providerRef, amountCents, currency],
+    );
+    payment = ins.rows[0];
+  }
+  const session = await gateway.createSession({
+    amountCents: payment.amount_cents, currency: payment.currency, providerRef, returnUrl, description,
+  });
+  res.status(201).json({ payment: publicPayment(payment), redirectUrl: session.redirectUrl, simulated: config.paymentsSimulated });
+}
+
+// Pay for a visa request.
 paymentsRouter.post('/visa/:id/checkout', async (req, res, next) => {
   try {
     const reqRow = await loadVisaRequest(req.params.id, req.user);
@@ -29,38 +56,29 @@ paymentsRouter.post('/visa/:id/checkout', async (req, res, next) => {
     if (reqRow.status !== 'awaiting_payment') {
       return res.status(409).json({ error: `This request is "${reqRow.status}" and cannot be paid` });
     }
-
-    // Reuse an existing pending payment instead of stacking up duplicates.
-    const existing = await query(
-      "select * from payments where visa_request_id = $1 and status = 'pending' order by created_at desc limit 1",
-      [reqRow.id],
-    );
-    let payment = existing.rows[0];
-    let providerRef = payment?.provider_ref;
-    if (!payment) {
-      providerRef = gateway.newRef();
-      const ins = await query(
-        `insert into payments (user_id, visa_request_id, provider, provider_ref, amount_cents, currency)
-         values ($1, $2, $3, $4, $5, $6) returning *`,
-        [req.user.id, reqRow.id, gateway.name, providerRef, reqRow.price_cents, reqRow.currency],
-      );
-      payment = ins.rows[0];
-    }
-
-    const returnUrl = `${config.publicBaseUrl}/pages/visa-status.html`;
-    const session = await gateway.createSession({
-      amountCents: payment.amount_cents,
-      currency: payment.currency,
-      providerRef,
-      returnUrl,
+    await startCheckout({
+      user: req.user, column: 'visa_request_id', itemId: reqRow.id,
+      amountCents: reqRow.price_cents, currency: reqRow.currency,
       description: `Visa: ${reqRow.type_name}`,
-    });
+      returnUrl: `${config.publicBaseUrl}/pages/visa-status.html`,
+    }, res);
+  } catch (e) { next(e); }
+});
 
-    res.status(201).json({
-      payment: publicPayment(payment),
-      redirectUrl: session.redirectUrl,
-      simulated: config.paymentsSimulated,
-    });
+// Pay for a hotel booking.
+paymentsRouter.post('/hotel/:id/checkout', async (req, res, next) => {
+  try {
+    const booking = await loadHotelBooking(req.params.id, req.user);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.status !== 'pending_payment') {
+      return res.status(409).json({ error: `This booking is "${booking.status}" and cannot be paid` });
+    }
+    await startCheckout({
+      user: req.user, column: 'hotel_booking_id', itemId: booking.id,
+      amountCents: booking.amount_cents, currency: booking.currency,
+      description: `Hotel: ${booking.hotel_name}`,
+      returnUrl: `${config.publicBaseUrl}/pages/hotel-bookings.html`,
+    }, res);
   } catch (e) { next(e); }
 });
 
@@ -100,13 +118,20 @@ paymentsRouter.post('/:ref/confirm', async (req, res, next) => {
       "update payments set status = 'paid', updated_at = now() where id = $1 returning *",
       [p.id],
     );
-    // Move the visa into the review queue, but only from awaiting_payment.
-    if (p.visa_request_id) {
-      await query(
-        "update visa_requests set status = 'in_review', updated_at = now() where id = $1 and status = 'awaiting_payment'",
-        [p.visa_request_id],
-      );
-    }
+    await fulfillPayment(updated.rows[0]);
     res.json({ payment: publicPayment(updated.rows[0]) });
   } catch (e) { next(e); }
 });
+
+// Move the purchased item forward once its payment is captured.
+async function fulfillPayment(payment) {
+  if (payment.visa_request_id) {
+    await query(
+      "update visa_requests set status = 'in_review', updated_at = now() where id = $1 and status = 'awaiting_payment'",
+      [payment.visa_request_id],
+    );
+  }
+  if (payment.hotel_booking_id) {
+    await confirmHotelBooking(payment.hotel_booking_id);
+  }
+}
