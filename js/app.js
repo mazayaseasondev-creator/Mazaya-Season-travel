@@ -233,7 +233,13 @@ async function payVisa(id){
 
 /* --- Simulated hosted payment page (pages/pay.html), shared by every product --- */
 function paymentReturnPage(kind){
-  return kind === 'hotel' ? 'hotel-bookings.html' : 'visa-status.html';
+  if (kind === 'hotel') return 'hotel-bookings.html';
+  if (kind === 'flight') return 'flight-bookings.html';
+  return 'visa-status.html';
+}
+function fmtDateTime(iso){
+  try { return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch (e) { return iso; }
 }
 async function initPay(){
   if (!(await requireSession())) return;
@@ -348,6 +354,91 @@ async function cancelHotelBooking(id){
   renderHotelBookings();
 }
 
+/* --- Flight search + booking (pages/results.html) --- */
+function initFlights(){
+  const dd = document.getElementById('f-depart');
+  if (dd && !dd.value){ const d = new Date(Date.now() + 30 * 864e5); dd.value = d.toISOString().slice(0, 10); }
+}
+async function searchFlights(){
+  const origin = (document.getElementById('f-origin') || {}).value || '';
+  const destination = (document.getElementById('f-destination') || {}).value || '';
+  const departDate = (document.getElementById('f-depart') || {}).value || '';
+  const adults = (document.getElementById('f-adults') || {}).value || '1';
+  const wrap = document.getElementById('flight-results');
+  if (!wrap) return;
+  if (!origin || !destination || !departDate){ toast('Enter origin, destination and date'); return; }
+  wrap.innerHTML = '<div class="card pad">Searching…</div>';
+  const q = `?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&departDate=${departDate}&adults=${encodeURIComponent(adults)}`;
+  const r = await apiGet('/api/flights/search' + q);
+  if (!r.ok){ wrap.innerHTML = `<div class="card pad">${esc(r.data.error || 'Search failed')}</div>`; return; }
+  const offers = r.data.offers || [];
+  if (!offers.length){ wrap.innerHTML = '<div class="card pad">No flights found.</div>'; return; }
+  wrap.innerHTML = offers.map((o, i) => `
+    <div class="card pad" style="margin-bottom:14px">
+      ${i === 0 ? '<div class="badge">Cheapest</div>' : ''}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><h3 style="margin:4px 0">${esc(o.airline)} · ${esc(o.flightNumber)}</h3>
+          <p style="margin:2px 0;color:#667">${esc(o.origin)} ${esc(fmtDateTime(o.departAt))} → ${esc(o.destination)} ${esc(fmtDateTime(o.arriveAt))}</p>
+          <p style="margin:2px 0;color:#889">${esc(o.cabin)} · ${o.stops === 0 ? 'Direct' : o.stops + ' stop(s)'} · ${o.passengers} traveller(s)</p></div>
+        <div style="text-align:right"><div class="price">${esc(money(o.totalPrice, o.currency))}</div>
+          <button class="btn primary" data-book-offer="${esc(o.offerKey)}" data-flight="${esc(o.airline + ' ' + o.flightNumber)}">Book</button></div>
+      </div>
+    </div>`).join('');
+}
+async function bookFlightOffer(offerKey, label){
+  if (!(await currentUser())){ location.href = 'login.html'; return; }
+  const leadPassenger = prompt(`Lead passenger name for ${label}:`);
+  if (!leadPassenger) return;
+  let r;
+  try { r = await api('/api/flights/bookings', { offerKey, leadPassenger }); }
+  catch (e) { toast('Cannot reach the server.'); return; }
+  if (!r.ok){ toast(r.data.error || 'Could not create booking'); return; }
+  const pay = await api(`/api/payments/flight/${r.data.booking.id}/checkout`, {});
+  if (!pay.ok){ toast(pay.data.error || 'Could not start payment'); return; }
+  location.href = pay.data.redirectUrl;
+}
+
+/* --- My flight bookings (pages/flight-bookings.html) --- */
+async function initFlightBookings(){
+  if (!(await requireSession())) return;
+  await renderFlightBookings();
+}
+async function renderFlightBookings(){
+  const wrap = document.getElementById('flight-booking-list');
+  if (!wrap) return;
+  const r = await apiGet('/api/flights/bookings');
+  if (!r.ok){ wrap.innerHTML = '<div class="card pad">Could not load your bookings.</div>'; return; }
+  const bookings = r.data.bookings || [];
+  if (!bookings.length){ wrap.innerHTML = '<div class="card pad">No flight bookings yet. <a href="results.html">Search flights</a>.</div>'; return; }
+  wrap.innerHTML = bookings.map(b => `
+    <div class="card pad" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><h3 style="margin:0">${esc(b.airline)} · ${esc(b.flightNumber)}</h3>
+          <p style="margin:4px 0;color:#667">${esc(b.origin)} ${esc(fmtDateTime(b.departAt))} → ${esc(b.destination)} ${esc(fmtDateTime(b.arriveAt))}</p>
+          <p style="margin:4px 0;color:#667">${esc(b.leadPassenger)} · ${b.passengers} traveller(s) · ${esc(money(b.amount, b.currency))}</p>
+          ${b.pnr ? `<p style="margin:4px 0">PNR <b>${esc(b.pnr)}</b>${b.ticketNumbers.length ? ' · Ticket(s): ' + esc(b.ticketNumbers.join(', ')) : ''}</p>` : ''}
+          ${b.status === 'pending_payment' && b.ticketingDeadline ? `<p style="margin:4px 0;color:#a60"><b>Hold expires:</b> ${esc(fmtDateTime(b.ticketingDeadline))}</p>` : ''}</div>
+        <div>${statusBadge(b.status)}</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+        ${b.status === 'pending_payment' ? `<button class="btn primary" data-pay-flight="${b.id}">Pay ${esc(money(b.amount, b.currency))}</button>` : ''}
+        ${(b.status === 'pending_payment' || b.status === 'ticketed') ? `<button class="btn ghost" data-cancel-flight="${b.id}">Cancel</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+async function payFlightBooking(id){
+  const r = await api(`/api/payments/flight/${id}/checkout`, {});
+  if (!r.ok){ toast(r.data.error || 'Could not start payment'); return; }
+  location.href = r.data.redirectUrl;
+}
+async function cancelFlightBooking(id){
+  if (!confirm('Cancel this booking?')) return;
+  const r = await api(`/api/flights/bookings/${id}/cancel`, {});
+  if (!r.ok){ toast(r.data.error || 'Could not cancel'); return; }
+  toast('Booking cancelled');
+  renderFlightBookings();
+}
+
 /* --- Admin visa queue (admin/index.html) --- */
 async function initAdminVisas(){
   const wrap = document.getElementById('admin-visa-queue');
@@ -410,6 +501,27 @@ async function initAdminHotels(){
   wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Guest</th><th>Hotel</th><th>Dates</th><th>Amount</th><th>Status</th><th>Voucher</th></tr>${rows || '<tr><td colspan="7">No bookings yet.</td></tr>'}</table>`;
 }
 
+/* Admin flight bookings (read-only list in admin/index.html). */
+async function initAdminFlights(){
+  const wrap = document.getElementById('admin-flight-bookings');
+  if (!wrap) return;
+  const u = await currentUser();
+  if (!u || u.role !== 'admin'){ wrap.innerHTML = ''; return; }
+  const r = await apiGet('/api/admin/flight-bookings');
+  if (!r.ok){ wrap.innerHTML = 'Could not load flight bookings.'; return; }
+  const rows = (r.data.bookings || []).map(b => `
+    <tr>
+      <td>#${b.id}</td>
+      <td>${esc(b.leadPassenger)}<br><small style="color:#889">${esc(b.customer.email || b.customer.mobile || '')}</small></td>
+      <td>${esc(b.airline)} ${esc(b.flightNumber)}<br><small style="color:#889">${esc(b.origin)}→${esc(b.destination)}</small></td>
+      <td>${esc(fmtDateTime(b.departAt))}</td>
+      <td>${esc(money(b.amount, b.currency))}</td>
+      <td>${statusBadge(b.status)}</td>
+      <td>${esc(b.pnr || '—')}<br><small style="color:#889">${esc(b.ticketNumbers.join(', ') || '')}</small></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Passenger</th><th>Flight</th><th>Departs</th><th>Amount</th><th>Status</th><th>PNR / tickets</th></tr>${rows || '<tr><td colspan="7">No bookings yet.</td></tr>'}</table>`;
+}
+
 /* Delegated clicks for the Phase 2/3 pages (buttons are injected dynamically). */
 document.addEventListener('click', e => {
   const up = e.target.closest('[data-upload]'); if (up) uploadVisaDocs(up.dataset.upload);
@@ -418,6 +530,9 @@ document.addEventListener('click', e => {
   const bk = e.target.closest('[data-book-rate]'); if (bk) bookHotelRate(bk.dataset.bookRate, bk.dataset.hotel);
   const ph = e.target.closest('[data-pay-hotel]'); if (ph) payHotelBooking(ph.dataset.payHotel);
   const ch = e.target.closest('[data-cancel-hotel]'); if (ch) cancelHotelBooking(ch.dataset.cancelHotel);
+  const bo = e.target.closest('[data-book-offer]'); if (bo) bookFlightOffer(bo.dataset.bookOffer, bo.dataset.flight);
+  const pf = e.target.closest('[data-pay-flight]'); if (pf) payFlightBooking(pf.dataset.payFlight);
+  const cf = e.target.closest('[data-cancel-flight]'); if (cf) cancelFlightBooking(cf.dataset.cancelFlight);
 });
 
 /* Page routing */
@@ -427,4 +542,6 @@ if (path.endsWith('/visa-status.html')) initVisaStatus();
 if (path.endsWith('/pay.html')) initPay();
 if (path.endsWith('/hotels.html')) initHotels();
 if (path.endsWith('/hotel-bookings.html')) initHotelBookings();
-if (path.includes('/admin/')) { initAdminVisas(); initAdminHotels(); }
+if (path.endsWith('/results.html')) initFlights();
+if (path.endsWith('/flight-bookings.html')) initFlightBookings();
+if (path.includes('/admin/')) { initAdminVisas(); initAdminHotels(); initAdminFlights(); }

@@ -5,12 +5,13 @@ import { requireAuth } from './auth.js';
 import { gateway } from './gateways/index.js';
 import { loadVisaRequest } from './visas.js';
 import { loadHotelBooking, confirmHotelBooking } from './hotels.js';
+import { loadFlightBooking, confirmFlightBooking } from './flights.js';
 
 export const paymentsRouter = express.Router();
 paymentsRouter.use(requireAuth);
 
 function publicPayment(p) {
-  const kind = p.visa_request_id ? 'visa' : (p.hotel_booking_id ? 'hotel' : null);
+  const kind = p.visa_request_id ? 'visa' : (p.hotel_booking_id ? 'hotel' : (p.flight_booking_id ? 'flight' : null));
   return {
     ref: p.provider_ref,
     provider: p.provider,
@@ -21,6 +22,7 @@ function publicPayment(p) {
     kind,
     visaRequestId: p.visa_request_id,
     hotelBookingId: p.hotel_booking_id,
+    flightBookingId: p.flight_booking_id,
   };
 }
 
@@ -82,6 +84,23 @@ paymentsRouter.post('/hotel/:id/checkout', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Pay for a flight booking.
+paymentsRouter.post('/flight/:id/checkout', async (req, res, next) => {
+  try {
+    const booking = await loadFlightBooking(req.params.id, req.user);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.status !== 'pending_payment') {
+      return res.status(409).json({ error: `This booking is "${booking.status}" and cannot be paid` });
+    }
+    await startCheckout({
+      user: req.user, column: 'flight_booking_id', itemId: booking.id,
+      amountCents: booking.amount_cents, currency: booking.currency,
+      description: `Flight: ${booking.airline} ${booking.flight_number}`,
+      returnUrl: `${config.publicBaseUrl}/pages/flight-bookings.html`,
+    }, res);
+  } catch (e) { next(e); }
+});
+
 // Look up a payment's status (owner or admin).
 paymentsRouter.get('/:ref', async (req, res, next) => {
   try {
@@ -133,5 +152,8 @@ async function fulfillPayment(payment) {
   }
   if (payment.hotel_booking_id) {
     await confirmHotelBooking(payment.hotel_booking_id);
+  }
+  if (payment.flight_booking_id) {
+    await confirmFlightBooking(payment.flight_booking_id);
   }
 }

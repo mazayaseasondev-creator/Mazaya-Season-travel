@@ -50,9 +50,11 @@ adminRouter.get('/stats', async (_req, res, next) => {
   try {
     const visas = await query('select status, count(*)::int as count from visa_requests group by status');
     const hotels = await query('select status, count(*)::int as count from hotel_bookings group by status');
+    const flights = await query('select status, count(*)::int as count from flight_bookings group by status');
     res.json({
       visaRequests: Object.fromEntries(visas.rows.map((x) => [x.status, x.count])),
       hotelBookings: Object.fromEntries(hotels.rows.map((x) => [x.status, x.count])),
+      flightBookings: Object.fromEntries(flights.rows.map((x) => [x.status, x.count])),
     });
   } catch (e) { next(e); }
 });
@@ -76,6 +78,32 @@ adminRouter.get('/hotel-bookings', async (req, res, next) => {
         roomName: b.room_name, leadGuest: b.lead_guest, checkIn: b.check_in, checkOut: b.check_out,
         nights: b.nights, amount: b.amount_cents / 100, currency: b.currency,
         supplierRef: b.supplier_ref, voucherCode: b.voucher_code,
+        customer: { id: b.user_id, email: b.user_email, mobile: b.user_mobile },
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+// Read-only flight booking list for the operations team.
+adminRouter.get('/flight-bookings', async (req, res, next) => {
+  try {
+    const status = req.query.status;
+    const params = [];
+    let where = '';
+    if (status) { params.push(String(status)); where = 'where fb.status = $1'; }
+    const r = await query(
+      `select fb.*, u.email as user_email, u.mobile as user_mobile
+         from flight_bookings fb join users u on u.id = fb.user_id
+         ${where} order by fb.created_at desc`,
+      params,
+    );
+    res.json({
+      bookings: r.rows.map((b) => ({
+        id: b.id, status: b.status, airline: b.airline, flightNumber: b.flight_number,
+        origin: b.origin, destination: b.destination, departAt: b.depart_at,
+        passengers: b.passengers, leadPassenger: b.lead_passenger,
+        amount: b.amount_cents / 100, currency: b.currency, pnr: b.pnr,
+        ticketNumbers: b.ticket_numbers ? b.ticket_numbers.split(',') : [],
         customer: { id: b.user_id, email: b.user_email, mobile: b.user_mobile },
       })),
     });

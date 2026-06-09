@@ -20,6 +20,10 @@ const paymentProvider = process.env.PAYMENT_PROVIDER || (isProd ? 'ngenius' : 's
 // is the real Hotelbeds/APItude integration (needs a commercial contract).
 const hotelSupplier = process.env.HOTEL_SUPPLIER || (isProd ? 'hotelbeds' : 'simulated');
 
+// Flight supplier (GDS/consolidator). 'simulated' is a built-in test supplier;
+// 'amadeus' is the real Amadeus integration (needs a commercial contract).
+const flightSupplier = process.env.FLIGHT_SUPPLIER || (isProd ? 'amadeus' : 'simulated');
+
 export const config = {
   port: parseInt(process.env.PORT || '4000', 10),
   isProd,
@@ -45,10 +49,11 @@ export const config = {
   // Public origin used to build payment return URLs. Defaults to localhost in dev.
   publicBaseUrl: process.env.PUBLIC_BASE_URL || `http://localhost:${parseInt(process.env.PORT || '4000', 10)}`,
 
-  // --- Phase 3: hotels ---
+  // --- Phase 3: hotels + flights ---
   hotelSupplier,
-  // Secret used to sign supplier rate keys so quoted prices can be trusted when
-  // a customer hands a rate back at booking time. Falls back to JWT_SECRET.
+  flightSupplier,
+  // Secret used to sign supplier rate/offer keys so quoted prices can be trusted
+  // when a customer hands one back at booking time. Falls back to JWT_SECRET.
   rateKeySecret: process.env.RATE_KEY_SECRET || process.env.JWT_SECRET || 'dev-insecure-jwt-secret',
 };
 

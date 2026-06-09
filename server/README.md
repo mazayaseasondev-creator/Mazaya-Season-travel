@@ -17,15 +17,18 @@ A Node.js + Express server backed by PostgreSQL, delivering the roadmap in
   ready for credentials.
 - An **admin queue** to review requests and set their status.
 
-**Phase 3 — Hotels**
-- **Search → book → pay → voucher → cancel** through a provider-agnostic hotel
-  supplier: a built-in **simulated** bedbank for dev/test, plus a real
-  **Hotelbeds** stub ready for credentials.
-- Quoted rates are signed (tamper-evident) so prices can be trusted at booking
-  time; payment reuses the Phase 2 gateway and issues a voucher on capture.
+**Phase 3 — Hotels & Flights**
+- Hotels: **search → book → pay → voucher → cancel** through a provider-agnostic
+  supplier (built-in **simulated** bedbank, plus a **Hotelbeds** stub).
+- Flights: **search → hold (PNR + ticketing deadline) → pay → ticket → cancel**
+  through a provider-agnostic supplier (built-in **simulated** GDS, plus an
+  **Amadeus** stub).
+- Quoted rates/offers are signed (tamper-evident) so prices can be trusted at
+  booking time; payment reuses the Phase 2 gateway and fulfils the purchase
+  (voucher for hotels, ticket numbers for flights) on capture.
 
-> Flights and tours supplier APIs are **not** part of these phases — see the
-> roadmap in `docs/BACKEND-PLAN.md`.
+> The tours supplier API is **not** part of these phases yet — see the roadmap
+> in `docs/BACKEND-PLAN.md`.
 
 ## Requirements
 
@@ -90,6 +93,19 @@ Set `EXPOSE_OTP=false` (or `NODE_ENV=production`) to turn this off.
 Paying a hotel booking confirms it with the supplier and issues a voucher; the
 status flow is `pending_payment → confirmed → cancelled`.
 
+### Flights (Phase 3)
+| Method | Path                                 | Purpose                                          |
+|--------|--------------------------------------|--------------------------------------------------|
+| GET    | `/api/flights/search`                | `?origin=&destination=&departDate=&adults=` (public) |
+| POST   | `/api/flights/bookings`              | Hold a fare from an `offerKey` — PNR + deadline (auth) |
+| GET    | `/api/flights/bookings`              | My bookings (auth)                               |
+| GET    | `/api/flights/bookings/:id`          | One booking (owner/admin)                        |
+| POST   | `/api/flights/bookings/:id/cancel`   | Cancel a booking (owner)                         |
+| POST   | `/api/payments/flight/:id/checkout`  | Pay for a booking — returns gateway `redirectUrl`|
+
+Paying a flight booking issues the ticket(s) with the supplier; the status flow
+is `pending_payment → ticketed → cancelled`.
+
 ### Admin (role `admin`)
 | Method | Path                          | Purpose                                |
 |--------|-------------------------------|----------------------------------------|
@@ -98,6 +114,7 @@ status flow is `pending_payment → confirmed → cancelled`.
 | GET    | `/api/admin/visas/:id`        | One request with documents             |
 | PATCH  | `/api/admin/visas/:id`        | Body `{ status?, note? }` — update     |
 | GET    | `/api/admin/hotel-bookings`   | Hotel bookings, optional `?status=`    |
+| GET    | `/api/admin/flight-bookings`  | Flight bookings, optional `?status=`   |
 
 Grant admin access by listing an email/mobile in `ADMIN_IDENTIFIERS`; that user
 becomes an admin the next time they log in.
@@ -112,6 +129,7 @@ npm test             # runs all smoke suites
 npm run smoke        # Phase 1: auth flow
 npm run smoke:visas  # Phase 2: visa requests, uploads, payment, admin queue
 npm run smoke:hotels # Phase 3: hotel search, booking, payment, voucher, cancel
+npm run smoke:flights # Phase 3: flight search, hold/PNR, payment, ticket, cancel
 ```
 
 ## Security notes
@@ -123,8 +141,8 @@ npm run smoke:hotels # Phase 3: hotel search, booking, payment, voucher, cancel
   restricted to PDFs/images and size-limited (`MAX_UPLOAD_BYTES`).
 - The **simulated** payment gateway never charges a card — the server refuses to
   start in production with it (set `PAYMENT_PROVIDER=ngenius`).
-- Hotel rate keys are HMAC-signed so a customer cannot alter the quoted price
-  between search and booking.
+- Hotel rate keys and flight offer keys are HMAC-signed so a customer cannot
+  alter the quoted price between search and booking.
 - Set strong `JWT_SECRET` and `OTP_SECRET` in production — the server refuses to
   start in production with the default dev secrets.
 - Before launch: enable a Content-Security-Policy, put the server behind HTTPS,

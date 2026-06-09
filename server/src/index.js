@@ -10,6 +10,7 @@ import { migrate } from './db.js';
 import { authRouter } from './auth.js';
 import { visaTypesRouter, visasRouter } from './visas.js';
 import { hotelsRouter } from './hotels.js';
+import { flightsRouter } from './flights.js';
 import { paymentsRouter } from './payments.js';
 import { adminRouter } from './admin.js';
 
@@ -37,8 +38,9 @@ export function createApp() {
   app.use('/api/payments', paymentsRouter);
   app.use('/api/admin', adminRouter);
 
-  // Phase 3: hotel search and bookings (supplier-agnostic).
+  // Phase 3: hotel + flight search and bookings (supplier-agnostic).
   app.use('/api/hotels', hotelsRouter);
+  app.use('/api/flights', flightsRouter);
 
   // Serve the existing static front-end (defaults to the repo root) so the site
   // and the API share one origin.
