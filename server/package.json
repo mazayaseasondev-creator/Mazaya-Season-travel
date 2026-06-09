@@ -1,0 +1,21 @@
+{
+  "name": "mazaya-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mazaya Season Travel backend (Phase 1: server + database + OTP login)",
+  "scripts": {
+    "start": "node src/index.js",
+    "migrate": "node -e \"import('./src/db.js').then(m=>m.migrate()).then(()=>{console.log('migrated');process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})\"",
+    "smoke": "node test/smoke.mjs"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  }
+}

@@ -55,16 +55,54 @@ function toast(msg){
   setTimeout(() => t.remove(), 2600);
 }
 
-/* --- Demo login validation ---
-   NOTE: This is front-end only and is NOT real security. It just stops the
-   form from continuing with empty / obviously-invalid input. Real
-   authentication (OTP verification, sessions) must be done on a backend
-   before launch. */
-function demoLogin(){
+/* --- Real login (talks to the backend API) ---
+   These call the Node/Express + PostgreSQL backend in /server. The site must
+   be served by that backend (e.g. http://localhost:4000) for the API to be
+   reachable; opened as plain files the calls will simply fail with a message. */
+async function api(path, body){
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body || {})
+  });
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function requestOtp(){
   const id = (document.getElementById('login-id') || {}).value || '';
-  const otp = (document.getElementById('login-otp') || {}).value || '';
-  const idOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(id.trim()) || /^[0-9]{7,}$/.test(id.replace(/\s/g, ''));
-  if (!idOk){ toast('Enter a valid email or mobile number'); return; }
-  if (!/^[0-9]{6}$/.test(otp.trim())){ toast('Enter the 6-digit code'); return; }
+  let r;
+  try { r = await api('/api/auth/request-otp', { identifier: id }); }
+  catch (e) { toast('Cannot reach the server. Is the backend running?'); return; }
+  if (!r.ok){ toast(r.data.error || 'Could not send code'); return; }
+  if (r.data.devCode){
+    const otp = document.getElementById('login-otp');
+    if (otp) otp.value = r.data.devCode;
+    toast('Dev code: ' + r.data.devCode);
+  } else {
+    toast('Verification code sent');
+  }
+}
+
+async function verifyOtp(){
+  const id = (document.getElementById('login-id') || {}).value || '';
+  const code = (document.getElementById('login-otp') || {}).value || '';
+  let r;
+  try { r = await api('/api/auth/verify-otp', { identifier: id, code }); }
+  catch (e) { toast('Cannot reach the server. Is the backend running?'); return; }
+  if (!r.ok){ toast(r.data.error || 'Invalid code'); return; }
   location.href = 'account.html';
 }
+
+/* Protect the account page: if there is no valid session, send the visitor to
+   login. When the site is opened as plain files (no backend), the request
+   fails and we leave the demo page untouched. */
+async function guardAccount(){
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
+    if (!res.ok){ location.href = 'login.html'; }
+  } catch (e) { /* no backend available - leave the demo page as-is */ }
+}
+if (location.pathname.endsWith('/account.html')) guardAccount();
