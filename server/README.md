@@ -1,35 +1,15 @@
-# Mazaya Season Travel — Backend (Phases 1–3)
+# Mazaya Season Travel — Backend (Phase 1)
 
-A Node.js + Express server backed by PostgreSQL, delivering the roadmap in
-`docs/BACKEND-PLAN.md`.
+A Node.js + Express server backed by PostgreSQL. This first phase delivers the
+foundation from `docs/BACKEND-PLAN.md`:
 
-**Phase 1 — Foundation**
 - A real web server that also serves the existing front-end (one origin).
 - A PostgreSQL database with `users` and `otp_codes` tables.
 - **Real passwordless login** using a one-time code (OTP) sent to an email or
   mobile number, with a secure signed session cookie.
 
-**Phase 2 — Visas first (+ payments)**
-- A visa **product catalogue** and customer **visa requests**.
-- **Document upload** (passport scans, photos) stored on disk in dev.
-- **Payments** via a provider-agnostic gateway: a built-in **simulated**
-  gateway for dev/test, plus a real **N-Genius** (Network International) stub
-  ready for credentials.
-- An **admin queue** to review requests and set their status.
-
-**Phase 3 — Hotels, Flights & Tours**
-- Hotels: **search → book → pay → voucher → cancel** (built-in **simulated**
-  bedbank, plus a **Hotelbeds** stub).
-- Flights: **search → hold (PNR + ticketing deadline) → pay → ticket → cancel**
-  (built-in **simulated** GDS, plus an **Amadeus** stub).
-- Tours: **search → choose transfer/guide → book → pay → voucher → cancel**
-  (built-in **simulated** supplier, plus a **Viator** stub).
-- Quoted rates/offers (including tour add-on prices) are signed (tamper-evident)
-  so prices can be trusted at booking time; payment reuses the Phase 2 gateway
-  and fulfils the purchase (voucher or ticket numbers) on capture.
-
-> Phase 3 product lines are complete. Remaining roadmap: **Phase 4 — admin
-> dashboard + go-live**; see `docs/BACKEND-PLAN.md`.
+> Bookings, payments and supplier APIs are **not** part of this phase — see the
+> roadmap in `docs/BACKEND-PLAN.md`.
 
 ## Requirements
 
@@ -59,7 +39,6 @@ Set `EXPOSE_OTP=false` (or `NODE_ENV=production`) to turn this off.
 
 ## API
 
-### Auth (Phase 1)
 | Method | Path                     | Purpose                                      |
 |--------|--------------------------|----------------------------------------------|
 | GET    | `/api/health`            | Liveness check                               |
@@ -68,85 +47,10 @@ Set `EXPOSE_OTP=false` (or `NODE_ENV=production`) to turn this off.
 | GET    | `/api/auth/me`           | Current user (requires session cookie)       |
 | POST   | `/api/auth/logout`       | Clears the session                           |
 
-### Visas & payments (Phase 2)
-| Method | Path                                | Purpose                                          |
-|--------|-------------------------------------|--------------------------------------------------|
-| GET    | `/api/visa-types`                   | Public visa catalogue                            |
-| POST   | `/api/visas`                        | Create a request (auth)                          |
-| GET    | `/api/visas`                        | List my requests (auth)                          |
-| GET    | `/api/visas/:id`                    | One request + documents (owner/admin)            |
-| POST   | `/api/visas/:id/documents`          | Upload documents — multipart `files` (owner)     |
-| GET    | `/api/visas/:id/documents/:docId`   | Download a document (owner/admin)                |
-| POST   | `/api/payments/visa/:id/checkout`   | Start payment, returns a gateway `redirectUrl`   |
-| GET    | `/api/payments/:ref`                | Payment status (owner/admin)                     |
-| POST   | `/api/payments/:ref/confirm`        | Complete a **simulated** payment (owner)         |
-
-### Hotels (Phase 3)
-| Method | Path                                | Purpose                                          |
-|--------|-------------------------------------|--------------------------------------------------|
-| GET    | `/api/hotels/search`                | `?city=&checkIn=&checkOut=&guests=` (public)     |
-| POST   | `/api/hotels/bookings`              | Hold a room from a `rateKey` (auth)              |
-| GET    | `/api/hotels/bookings`              | My bookings (auth)                               |
-| GET    | `/api/hotels/bookings/:id`          | One booking (owner/admin)                        |
-| POST   | `/api/hotels/bookings/:id/cancel`   | Cancel a booking (owner)                         |
-| POST   | `/api/payments/hotel/:id/checkout`  | Pay for a booking — returns gateway `redirectUrl`|
-
-Paying a hotel booking confirms it with the supplier and issues a voucher; the
-status flow is `pending_payment → confirmed → cancelled`.
-
-### Flights (Phase 3)
-| Method | Path                                 | Purpose                                          |
-|--------|--------------------------------------|--------------------------------------------------|
-| GET    | `/api/flights/search`                | `?origin=&destination=&departDate=&adults=` (public) |
-| POST   | `/api/flights/bookings`              | Hold a fare from an `offerKey` — PNR + deadline (auth) |
-| GET    | `/api/flights/bookings`              | My bookings (auth)                               |
-| GET    | `/api/flights/bookings/:id`          | One booking (owner/admin)                        |
-| POST   | `/api/flights/bookings/:id/cancel`   | Cancel a booking (owner)                         |
-| POST   | `/api/payments/flight/:id/checkout`  | Pay for a booking — returns gateway `redirectUrl`|
-
-Paying a flight booking issues the ticket(s) with the supplier; the status flow
-is `pending_payment → ticketed → cancelled`.
-
-### Tours (Phase 3)
-| Method | Path                               | Purpose                                          |
-|--------|------------------------------------|--------------------------------------------------|
-| GET    | `/api/tours/search`                | `?city=&date=&travellers=` (public)              |
-| POST   | `/api/tours/bookings`              | Book from a `tourKey` + `transferCode`/`guideCode` (auth) |
-| GET    | `/api/tours/bookings`              | My bookings (auth)                               |
-| GET    | `/api/tours/bookings/:id`          | One booking (owner/admin)                        |
-| POST   | `/api/tours/bookings/:id/cancel`   | Cancel a booking (owner)                         |
-| POST   | `/api/payments/tour/:id/checkout`  | Pay for a booking — returns gateway `redirectUrl`|
-
-Transfer and guide option prices are signed into the `tourKey`, so the add-on
-cost is validated server-side. Paying confirms the booking and issues a voucher;
-the status flow is `pending_payment → confirmed → cancelled`.
-
-### Admin (role `admin`)
-| Method | Path                          | Purpose                                |
-|--------|-------------------------------|----------------------------------------|
-| GET    | `/api/admin/stats`            | Visa + hotel counts by status          |
-| GET    | `/api/admin/visas`            | Visa queue, optional `?status=`        |
-| GET    | `/api/admin/visas/:id`        | One request with documents             |
-| PATCH  | `/api/admin/visas/:id`        | Body `{ status?, note? }` — update     |
-| GET    | `/api/admin/hotel-bookings`   | Hotel bookings, optional `?status=`    |
-| GET    | `/api/admin/flight-bookings`  | Flight bookings, optional `?status=`   |
-| GET    | `/api/admin/tour-bookings`    | Tour bookings, optional `?status=`     |
-
-Grant admin access by listing an email/mobile in `ADMIN_IDENTIFIERS`; that user
-becomes an admin the next time they log in.
-
-The visa status flow is `awaiting_payment → in_review → approved | rejected`.
-Paying a request (simulated or real) advances it to `in_review`.
-
 ## Tests
 
 ```bash
-npm test             # runs all smoke suites
-npm run smoke        # Phase 1: auth flow
-npm run smoke:visas  # Phase 2: visa requests, uploads, payment, admin queue
-npm run smoke:hotels # Phase 3: hotel search, booking, payment, voucher, cancel
-npm run smoke:flights # Phase 3: flight search, hold/PNR, payment, ticket, cancel
-npm run smoke:tours  # Phase 3: tour search, options, payment, voucher, cancel
+npm run smoke   # end-to-end auth flow against your configured database
 ```
 
 ## Security notes
@@ -154,14 +58,7 @@ npm run smoke:tours  # Phase 3: tour search, options, payment, voucher, cancel
 - OTP codes are stored only as HMAC-SHA256 hashes, are single-use, expire after
   `OTP_TTL_MINUTES`, and lock after `OTP_MAX_ATTEMPTS`.
 - Sessions are signed JWTs in an `httpOnly` cookie (`secure` in production).
-- Visa documents are downloadable only by the owner or an admin; uploads are
-  restricted to PDFs/images and size-limited (`MAX_UPLOAD_BYTES`).
-- The **simulated** payment gateway never charges a card — the server refuses to
-  start in production with it (set `PAYMENT_PROVIDER=ngenius`).
-- Hotel rate keys and flight offer keys are HMAC-signed so a customer cannot
-  alter the quoted price between search and booking.
 - Set strong `JWT_SECRET` and `OTP_SECRET` in production — the server refuses to
   start in production with the default dev secrets.
 - Before launch: enable a Content-Security-Policy, put the server behind HTTPS,
-  move document storage to S3, and connect a real SMS/email provider in
-  `src/otp.js` plus N-Genius credentials in `src/gateways/ngenius.js`.
+  and connect a real SMS/email provider in `src/otp.js`.
