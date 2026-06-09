@@ -1,0 +1,36 @@
+# Manually-triggered housekeeping: deletes the given branches
+# (Actions tab -> Delete branches -> Run workflow). Refuses the default branch.
+name: Delete branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      branches:
+        description: "Space-separated branch names to delete"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCHES: ${{ inputs.branches }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          for b in $BRANCHES; do
+            if [ "$b" = "$DEFAULT_BRANCH" ]; then
+              echo "::warning::Refusing to delete the default branch '$b'"
+              continue
+            fi
+            if gh api -X DELETE "repos/$REPO/git/refs/heads/$b"; then
+              echo "Deleted $b"
+            else
+              echo "::warning::Could not delete $b (may not exist)"
+            fi
+          done
