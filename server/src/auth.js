@@ -18,26 +18,11 @@ function publicUser(u) {
   return { id: u.id, email: u.email, mobile: u.mobile, name: u.name, role: u.role, miles: u.miles };
 }
 
-// Should this identifier be an admin? Configured via ADMIN_IDENTIFIERS.
-function isAdminIdentifier(value) {
-  return config.adminIdentifiers.includes(String(value).toLowerCase());
-}
-
 async function findOrCreateUser({ type, value }) {
   const col = type === 'email' ? 'email' : 'mobile';
-  const wantAdmin = isAdminIdentifier(value);
   const found = await query(`select * from users where ${col} = $1`, [value]);
-  if (found.rows[0]) {
-    const user = found.rows[0];
-    // Keep the role in sync if the identifier was added to the admin list later.
-    if (wantAdmin && user.role !== 'admin') {
-      const upgraded = await query("update users set role = 'admin' where id = $1 returning *", [user.id]);
-      return upgraded.rows[0];
-    }
-    return user;
-  }
-  const role = wantAdmin ? 'admin' : 'customer';
-  const created = await query(`insert into users (${col}, role) values ($1, $2) returning *`, [value, role]);
+  if (found.rows[0]) return found.rows[0];
+  const created = await query(`insert into users (${col}) values ($1) returning *`, [value]);
   return created.rows[0];
 }
 
@@ -66,12 +51,6 @@ export async function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-}
-
-// Middleware: require an authenticated admin. Run after requireAuth.
-export async function requireAdmin(req, res, next) {
-  if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-  next();
 }
 
 // Step 1: request a one-time code for an email or mobile number.
