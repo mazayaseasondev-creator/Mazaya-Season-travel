@@ -1,0 +1,52 @@
+# Runs the full end-to-end smoke suite (105 checks across 6 suites) against a
+# real PostgreSQL on every pull request and every push to main.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Backend tests (Node 22 + PostgreSQL 16)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mazaya
+          POSTGRES_PASSWORD: mazaya
+          POSTGRES_DB: mazaya
+        ports:
+          - 5432:5432
+        # Wait until PostgreSQL is ready before starting the job steps.
+        options: >-
+          --health-cmd "pg_isready -U mazaya"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run all smoke suites
+        run: npm test
+        env:
+          DATABASE_URL: postgres://mazaya:mazaya@127.0.0.1:5432/mazaya
