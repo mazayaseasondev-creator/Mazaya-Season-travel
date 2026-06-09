@@ -28,8 +28,13 @@ A Node.js + Express server backed by PostgreSQL, delivering the roadmap in
   so prices can be trusted at booking time; payment reuses the Phase 2 gateway
   and fulfils the purchase (voucher or ticket numbers) on capture.
 
-> Phase 3 product lines are complete. Remaining roadmap: **Phase 4 — admin
-> dashboard + go-live**; see `docs/BACKEND-PLAN.md`.
+**Phase 4 — Admin dashboard & go-live**
+- A **live operations dashboard**: revenue, bookings, customers, the visa review
+  queue and open leads, all from real data.
+- **Customers**, **payments ledger** and **leads** views; admin **refunds** that
+  reverse the linked booking with its supplier.
+- Public **contact-form leads**, a DB-aware **readiness** check, **Docker** /
+  Compose, **SEO** files and a go-live security checklist (`docs/DEPLOYMENT.md`).
 
 ## Requirements
 
@@ -63,6 +68,8 @@ Set `EXPOSE_OTP=false` (or `NODE_ENV=production`) to turn this off.
 | Method | Path                     | Purpose                                      |
 |--------|--------------------------|----------------------------------------------|
 | GET    | `/api/health`            | Liveness check                               |
+| GET    | `/api/ready`             | Readiness check (verifies the database)      |
+| POST   | `/api/leads`             | Public contact-form lead (rate-limited)      |
 | POST   | `/api/auth/request-otp`  | Body `{ identifier }` — email or mobile      |
 | POST   | `/api/auth/verify-otp`   | Body `{ identifier, code }` — starts session |
 | GET    | `/api/auth/me`           | Current user (requires session cookie)       |
@@ -122,15 +129,19 @@ cost is validated server-side. Paying confirms the booking and issues a voucher;
 the status flow is `pending_payment → confirmed → cancelled`.
 
 ### Admin (role `admin`)
-| Method | Path                          | Purpose                                |
-|--------|-------------------------------|----------------------------------------|
-| GET    | `/api/admin/stats`            | Visa + hotel counts by status          |
-| GET    | `/api/admin/visas`            | Visa queue, optional `?status=`        |
-| GET    | `/api/admin/visas/:id`        | One request with documents             |
-| PATCH  | `/api/admin/visas/:id`        | Body `{ status?, note? }` — update     |
-| GET    | `/api/admin/hotel-bookings`   | Hotel bookings, optional `?status=`    |
-| GET    | `/api/admin/flight-bookings`  | Flight bookings, optional `?status=`   |
-| GET    | `/api/admin/tour-bookings`    | Tour bookings, optional `?status=`     |
+| Method | Path                          | Purpose                                       |
+|--------|-------------------------------|-----------------------------------------------|
+| GET    | `/api/admin/stats`            | Dashboard: revenue, bookings, customers, leads|
+| GET    | `/api/admin/customers`        | Customers with lifetime spend                 |
+| GET    | `/api/admin/payments`         | Payments ledger, optional `?status=`          |
+| GET    | `/api/admin/leads`            | Contact-form leads, optional `?status=`       |
+| GET    | `/api/admin/visas`            | Visa queue, optional `?status=`               |
+| GET    | `/api/admin/visas/:id`        | One request with documents                    |
+| PATCH  | `/api/admin/visas/:id`        | Body `{ status?, note? }` — update            |
+| GET    | `/api/admin/hotel-bookings`   | Hotel bookings, optional `?status=`           |
+| GET    | `/api/admin/flight-bookings`  | Flight bookings, optional `?status=`          |
+| GET    | `/api/admin/tour-bookings`    | Tour bookings, optional `?status=`            |
+| POST   | `/api/payments/:ref/refund`   | Refund a paid payment, reverse the booking    |
 
 Grant admin access by listing an email/mobile in `ADMIN_IDENTIFIERS`; that user
 becomes an admin the next time they log in.
@@ -147,7 +158,11 @@ npm run smoke:visas  # Phase 2: visa requests, uploads, payment, admin queue
 npm run smoke:hotels # Phase 3: hotel search, booking, payment, voucher, cancel
 npm run smoke:flights # Phase 3: flight search, hold/PNR, payment, ticket, cancel
 npm run smoke:tours  # Phase 3: tour search, options, payment, voucher, cancel
+npm run smoke:admin  # Phase 4: dashboard stats, customers, payments, leads, refunds
 ```
+
+See `docs/DEPLOYMENT.md` for Docker, staging vs production, and the go-live
+security checklist.
 
 ## Security notes
 

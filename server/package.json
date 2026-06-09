@@ -12,7 +12,8 @@
     "smoke:hotels": "node test/hotels.smoke.mjs",
     "smoke:flights": "node test/flights.smoke.mjs",
     "smoke:tours": "node test/tours.smoke.mjs",
-    "test": "node test/smoke.mjs && node test/visas.smoke.mjs && node test/hotels.smoke.mjs && node test/flights.smoke.mjs && node test/tours.smoke.mjs"
+    "smoke:admin": "node test/admin.smoke.mjs",
+    "test": "node test/smoke.mjs && node test/visas.smoke.mjs && node test/hotels.smoke.mjs && node test/flights.smoke.mjs && node test/tours.smoke.mjs && node test/admin.smoke.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

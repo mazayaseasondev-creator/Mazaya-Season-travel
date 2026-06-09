@@ -98,6 +98,11 @@ export async function loadVisaRequest(id, user) {
   return row;
 }
 
+// Reverse a visa request when its payment is refunded (admin-initiated).
+export async function voidVisaRequest(id) {
+  await query("update visa_requests set status = 'cancelled', updated_at = now() where id = $1", [id]);
+}
+
 // ---- public catalogue --------------------------------------------------------
 
 export const visaTypesRouter = express.Router();

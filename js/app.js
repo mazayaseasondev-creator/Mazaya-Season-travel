@@ -635,6 +635,95 @@ async function initAdminTours(){
   wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Traveller</th><th>Tour</th><th>Transfer / guide</th><th>Amount</th><th>Status</th><th>Voucher</th></tr>${rows || '<tr><td colspan="7">No bookings yet.</td></tr>'}</table>`;
 }
 
+/* --- Phase 4 admin dashboard (admin/index.html) --- */
+async function initAdmin(){
+  if (!document.querySelector('.admin-layout')) return;
+  const u = await currentUser();
+  const note = document.getElementById('admin-auth-note');
+  if (!u || u.role !== 'admin'){
+    if (note) note.innerHTML = '<div class="card pad" style="margin-bottom:18px;border-color:#f5c">Admin sign-in required. <a href="../pages/login.html">Login</a> with an admin account to see live data.</div>';
+    return;
+  }
+  if (note) note.innerHTML = `<p style="color:#667;margin:-6px 0 14px">Signed in as <b>${esc(u.email || u.mobile)}</b></p>`;
+  // The booking queues render themselves; here we add the dashboard widgets.
+  initAdminVisas(); initAdminHotels(); initAdminFlights(); initAdminTours();
+  renderAdminStats(); renderAdminCustomers(); renderAdminPayments(); renderAdminLeads();
+}
+async function renderAdminStats(){
+  const wrap = document.getElementById('admin-stats');
+  if (!wrap) return;
+  const r = await apiGet('/api/admin/stats');
+  if (!r.ok){ wrap.innerHTML = ''; return; }
+  const s = r.data;
+  const stat = (label, value) => `<div class="stat"><span>${label}</span><br><b>${value}</b></div>`;
+  wrap.innerHTML =
+    stat('Revenue', esc(money(s.revenue, s.currency))) +
+    stat('Bookings', s.bookingsTotal) +
+    stat('Visa review queue', s.visaReviewQueue) +
+    stat('Customers', s.customers) +
+    stat('Open leads', s.openLeads) +
+    stat('Refunded', esc(money(s.refunded, s.currency)));
+}
+async function renderAdminCustomers(){
+  const wrap = document.getElementById('admin-customers');
+  if (!wrap) return;
+  const r = await apiGet('/api/admin/customers');
+  if (!r.ok){ wrap.innerHTML = 'Could not load customers.'; return; }
+  const rows = (r.data.customers || []).map(c => `
+    <tr><td>#${c.id}</td><td>${esc(c.email || c.mobile || '')}</td><td>${c.paidCount}</td>
+        <td>${esc(money(c.spend, 'AED'))}</td><td>${c.miles}</td></tr>`).join('');
+  wrap.innerHTML = `<table class="table"><tr><th>ID</th><th>Contact</th><th>Paid orders</th><th>Lifetime spend</th><th>Miles</th></tr>${rows || '<tr><td colspan="5">No customers yet.</td></tr>'}</table>`;
+}
+async function renderAdminPayments(){
+  const wrap = document.getElementById('admin-payments');
+  if (!wrap) return;
+  const r = await apiGet('/api/admin/payments');
+  if (!r.ok){ wrap.innerHTML = 'Could not load payments.'; return; }
+  const rows = (r.data.payments || []).map(p => `
+    <tr>
+      <td><small>${esc(p.ref)}</small></td>
+      <td>${esc(p.kind || '')}</td>
+      <td>${esc(p.customer.email || p.customer.mobile || '')}</td>
+      <td>${esc(money(p.amount, p.currency))}</td>
+      <td>${statusBadge(p.status)}</td>
+      <td>${p.status === 'paid' ? `<button class="btn ghost" data-refund="${esc(p.ref)}">Refund</button>` : ''}</td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Type</th><th>Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr>${rows || '<tr><td colspan="6">No payments yet.</td></tr>'}</table>`;
+}
+async function refundPayment(ref){
+  if (!confirm('Refund this payment and cancel the linked booking?')) return;
+  const r = await api(`/api/payments/${ref}/refund`, {});
+  if (!r.ok){ toast(r.data.error || 'Refund failed'); return; }
+  toast('Payment refunded');
+  renderAdminPayments(); renderAdminStats();
+  initAdminHotels(); initAdminFlights(); initAdminTours(); initAdminVisas();
+}
+async function renderAdminLeads(){
+  const wrap = document.getElementById('admin-leads');
+  if (!wrap) return;
+  const r = await apiGet('/api/admin/leads');
+  if (!r.ok){ wrap.innerHTML = 'Could not load leads.'; return; }
+  const rows = (r.data.leads || []).map(l => `
+    <tr><td>#${l.id}</td><td>${esc(l.name)}</td><td>${esc(l.email || l.mobile || '')}</td>
+        <td>${esc(l.message)}</td><td>${statusBadge(l.status)}</td></tr>`).join('');
+  wrap.innerHTML = `<table class="table"><tr><th>ID</th><th>Name</th><th>Contact</th><th>Message</th><th>Status</th></tr>${rows || '<tr><td colspan="5">No leads yet.</td></tr>'}</table>`;
+}
+
+/* --- Contact form -> lead (pages/contact.html) --- */
+async function submitLead(){
+  const body = {
+    name: (document.getElementById('lead-name') || {}).value || '',
+    contact: (document.getElementById('lead-contact') || {}).value || '',
+    message: (document.getElementById('lead-message') || {}).value || '',
+  };
+  let r;
+  try { r = await api('/api/leads', body); }
+  catch (e) { toast('Cannot reach the server.'); return; }
+  if (!r.ok){ toast(r.data.error || 'Could not send'); return; }
+  toast(r.data.message || 'Thanks — we will be in touch.');
+  ['lead-name', 'lead-contact', 'lead-message'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+}
+
 /* Delegated clicks for the Phase 2/3 pages (buttons are injected dynamically). */
 document.addEventListener('click', e => {
   const up = e.target.closest('[data-upload]'); if (up) uploadVisaDocs(up.dataset.upload);
@@ -649,6 +738,7 @@ document.addEventListener('click', e => {
   const bt = e.target.closest('[data-book-tour]'); if (bt) bookTour(bt.dataset.bookTour);
   const pt = e.target.closest('[data-pay-tour]'); if (pt) payTourBooking(pt.dataset.payTour);
   const ct = e.target.closest('[data-cancel-tour]'); if (ct) cancelTourBooking(ct.dataset.cancelTour);
+  const rf = e.target.closest('[data-refund]'); if (rf) refundPayment(rf.dataset.refund);
 });
 
 /* Page routing */
@@ -662,4 +752,5 @@ if (path.endsWith('/results.html')) initFlights();
 if (path.endsWith('/flight-bookings.html')) initFlightBookings();
 if (path.endsWith('/tours.html')) initTours();
 if (path.endsWith('/tour-bookings.html')) initTourBookings();
-if (path.includes('/admin/')) { initAdminVisas(); initAdminHotels(); initAdminFlights(); initAdminTours(); }
+if (path.endsWith('/contact.html')) {/* form posts via submitLead() */}
+if (path.includes('/admin/')) initAdmin();

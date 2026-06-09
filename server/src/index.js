@@ -14,6 +14,8 @@ import { flightsRouter } from './flights.js';
 import { toursRouter } from './tours.js';
 import { paymentsRouter } from './payments.js';
 import { adminRouter } from './admin.js';
+import { leadsRouter } from './leads.js';
+import { query } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..', '..');
@@ -27,7 +29,18 @@ export function createApp() {
   app.use(express.json());
   app.use(cookieParser());
 
+  // Liveness: the process is up.
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+  // Readiness: the process can reach the database (use for load-balancer checks).
+  app.get('/api/ready', async (_req, res) => {
+    try {
+      await query('select 1');
+      res.json({ ok: true, db: 'up' });
+    } catch (e) {
+      res.status(503).json({ ok: false, db: 'down' });
+    }
+  });
 
   // Limit auth traffic to slow down code-guessing / abuse.
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
@@ -43,6 +56,9 @@ export function createApp() {
   app.use('/api/hotels', hotelsRouter);
   app.use('/api/flights', flightsRouter);
   app.use('/api/tours', toursRouter);
+
+  // Phase 4: public contact-form leads.
+  app.use('/api/leads', leadsRouter);
 
   // Serve the existing static front-end (defaults to the repo root) so the site
   // and the API share one origin.

@@ -1,12 +1,12 @@
 import express from 'express';
 import { query } from './db.js';
 import { config } from './config.js';
-import { requireAuth } from './auth.js';
+import { requireAuth, requireAdmin } from './auth.js';
 import { gateway } from './gateways/index.js';
-import { loadVisaRequest } from './visas.js';
-import { loadHotelBooking, confirmHotelBooking } from './hotels.js';
-import { loadFlightBooking, confirmFlightBooking } from './flights.js';
-import { loadTourBooking, confirmTourBooking } from './tours.js';
+import { loadVisaRequest, voidVisaRequest } from './visas.js';
+import { loadHotelBooking, confirmHotelBooking, voidHotelBooking } from './hotels.js';
+import { loadFlightBooking, confirmFlightBooking, voidFlightBooking } from './flights.js';
+import { loadTourBooking, confirmTourBooking, voidTourBooking } from './tours.js';
 
 export const paymentsRouter = express.Router();
 paymentsRouter.use(requireAuth);
@@ -164,6 +164,25 @@ paymentsRouter.post('/:ref/confirm', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Refund a captured payment and reverse the linked booking (admin only).
+paymentsRouter.post('/:ref/refund', requireAdmin, async (req, res, next) => {
+  try {
+    const r = await query('select * from payments where provider_ref = $1', [req.params.ref]);
+    const p = r.rows[0];
+    if (!p) return res.status(404).json({ error: 'Payment not found' });
+    if (p.status === 'refunded') return res.json({ payment: publicPayment(p), alreadyRefunded: true });
+    if (p.status !== 'paid') return res.status(409).json({ error: `Only paid payments can be refunded (this is ${p.status})` });
+
+    // A real gateway would call its refund API here; the simulated one is instant.
+    const updated = await query(
+      "update payments set status = 'refunded', updated_at = now() where id = $1 returning *",
+      [p.id],
+    );
+    await reversePayment(updated.rows[0]);
+    res.json({ payment: publicPayment(updated.rows[0]) });
+  } catch (e) { next(e); }
+});
+
 // Move the purchased item forward once its payment is captured.
 async function fulfillPayment(payment) {
   if (payment.visa_request_id) {
@@ -181,4 +200,12 @@ async function fulfillPayment(payment) {
   if (payment.tour_booking_id) {
     await confirmTourBooking(payment.tour_booking_id);
   }
+}
+
+// Reverse the purchased item when its payment is refunded.
+async function reversePayment(payment) {
+  if (payment.visa_request_id) await voidVisaRequest(payment.visa_request_id);
+  if (payment.hotel_booking_id) await voidHotelBooking(payment.hotel_booking_id);
+  if (payment.flight_booking_id) await voidFlightBooking(payment.flight_booking_id);
+  if (payment.tour_booking_id) await voidTourBooking(payment.tour_booking_id);
 }

@@ -45,18 +45,101 @@ const ADMIN_SELECT = `
     select * from payments where visa_request_id = vr.id order by created_at desc limit 1
   ) p on true`;
 
-// Counts per status, for the dashboard.
+function byStatus(rows) { return Object.fromEntries(rows.map((x) => [x.status, x.count])); }
+function totalOf(map) { return Object.values(map).reduce((a, b) => a + b, 0); }
+
+// Dashboard summary: live counts, revenue and headline numbers.
 adminRouter.get('/stats', async (_req, res, next) => {
   try {
-    const visas = await query('select status, count(*)::int as count from visa_requests group by status');
-    const hotels = await query('select status, count(*)::int as count from hotel_bookings group by status');
-    const flights = await query('select status, count(*)::int as count from flight_bookings group by status');
-    const tours = await query('select status, count(*)::int as count from tour_bookings group by status');
+    const visas = byStatus((await query('select status, count(*)::int as count from visa_requests group by status')).rows);
+    const hotels = byStatus((await query('select status, count(*)::int as count from hotel_bookings group by status')).rows);
+    const flights = byStatus((await query('select status, count(*)::int as count from flight_bookings group by status')).rows);
+    const tours = byStatus((await query('select status, count(*)::int as count from tour_bookings group by status')).rows);
+
+    // Revenue = captured (paid) payments; refunds are tracked separately.
+    const rev = await query("select coalesce(sum(amount_cents),0)::bigint as cents from payments where status = 'paid'");
+    const refunded = await query("select coalesce(sum(amount_cents),0)::bigint as cents from payments where status = 'refunded'");
+    const customers = await query("select count(*)::int as count from users where role = 'customer'");
+    const openLeads = await query("select count(*)::int as count from leads where status = 'new'");
+    const visaQueue = visas.in_review || 0;
+
     res.json({
-      visaRequests: Object.fromEntries(visas.rows.map((x) => [x.status, x.count])),
-      hotelBookings: Object.fromEntries(hotels.rows.map((x) => [x.status, x.count])),
-      flightBookings: Object.fromEntries(flights.rows.map((x) => [x.status, x.count])),
-      tourBookings: Object.fromEntries(tours.rows.map((x) => [x.status, x.count])),
+      revenue: Number(rev.rows[0].cents) / 100,
+      refunded: Number(refunded.rows[0].cents) / 100,
+      currency: 'AED',
+      customers: customers.rows[0].count,
+      openLeads: openLeads.rows[0].count,
+      visaReviewQueue: visaQueue,
+      bookingsTotal: totalOf(hotels) + totalOf(flights) + totalOf(tours),
+      visaRequests: visas,
+      hotelBookings: hotels,
+      flightBookings: flights,
+      tourBookings: tours,
+    });
+  } catch (e) { next(e); }
+});
+
+// Customers list with lifetime spend and booking counts.
+adminRouter.get('/customers', async (_req, res, next) => {
+  try {
+    const r = await query(`
+      select u.id, u.email, u.mobile, u.name, u.miles, u.created_at,
+             coalesce(p.spend, 0) as spend_cents,
+             coalesce(p.paid_count, 0)::int as paid_count
+        from users u
+        left join lateral (
+          select sum(amount_cents) as spend, count(*) as paid_count
+            from payments where user_id = u.id and status = 'paid'
+        ) p on true
+       where u.role = 'customer'
+       order by u.created_at desc`);
+    res.json({
+      customers: r.rows.map((c) => ({
+        id: c.id, email: c.email, mobile: c.mobile, name: c.name, miles: c.miles,
+        spend: Number(c.spend_cents) / 100, paidCount: c.paid_count, createdAt: c.created_at,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+// Payments ledger (for reconciliation and refunds).
+adminRouter.get('/payments', async (req, res, next) => {
+  try {
+    const status = req.query.status;
+    const params = [];
+    let where = '';
+    if (status) { params.push(String(status)); where = 'where p.status = $1'; }
+    const r = await query(
+      `select p.*, u.email as user_email, u.mobile as user_mobile
+         from payments p join users u on u.id = p.user_id
+         ${where} order by p.created_at desc limit 200`,
+      params,
+    );
+    res.json({
+      payments: r.rows.map((p) => ({
+        ref: p.provider_ref, provider: p.provider, status: p.status,
+        amount: p.amount_cents / 100, currency: p.currency,
+        kind: p.visa_request_id ? 'visa' : p.hotel_booking_id ? 'hotel' : p.flight_booking_id ? 'flight' : p.tour_booking_id ? 'tour' : null,
+        customer: { id: p.user_id, email: p.user_email, mobile: p.user_mobile },
+        createdAt: p.created_at, updatedAt: p.updated_at,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+// Leads from the public contact form.
+adminRouter.get('/leads', async (req, res, next) => {
+  try {
+    const status = req.query.status;
+    const params = [];
+    let where = '';
+    if (status) { params.push(String(status)); where = 'where status = $1'; }
+    const r = await query(`select * from leads ${where} order by created_at desc limit 200`, params);
+    res.json({
+      leads: r.rows.map((l) => ({
+        id: l.id, name: l.name, email: l.email, mobile: l.mobile,
+        message: l.message, source: l.source, status: l.status, createdAt: l.created_at,
+      })),
     });
   } catch (e) { next(e); }
 });

@@ -56,6 +56,16 @@ export async function confirmTourBooking(bookingId) {
   return up.rows[0];
 }
 
+// Reverse a booking when its payment is refunded (admin-initiated): notify the
+// supplier and mark it cancelled.
+export async function voidTourBooking(id) {
+  const r = await query('select * from tour_bookings where id = $1', [id]);
+  const b = r.rows[0];
+  if (!b || b.status === 'cancelled') return;
+  if (b.supplier_ref) await tourSupplier.cancel(b.supplier_ref);
+  await query("update tour_bookings set status = 'cancelled', updated_at = now() where id = $1", [id]);
+}
+
 // --- public search ------------------------------------------------------------
 
 toursRouter.get('/search', async (req, res, next) => {
