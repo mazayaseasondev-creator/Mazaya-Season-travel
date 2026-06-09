@@ -1,3 +1,19 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visas</title><link rel="stylesheet" href="../css/styles.css"></head><body><div id="site-header"></div>
-<main><section class="section"><div class="container"><h1>Visa request</h1><div class="card pad"><div class="form-grid"><div class="field"><label>Destination</label><input value="Schengen"></div><div class="field"><label>Travel date</label><input type="date"></div><div class="field"><label>Applicant</label><input placeholder="Full name"></div><button class="btn primary">Submit request</button></div><p>Document upload, status tracking and agent assignment are ready for backend implementation.</p></div></div></section></main><div id="site-footer"></div><script src="../js/app.js"></script>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visa request</title><link rel="stylesheet" href="../css/styles.css"></head><body><div id="site-header"></div>
+<main><section class="section"><div class="container" style="max-width:760px">
+  <h1>Visa request</h1>
+  <p class="lead">Apply for a visa, upload your documents and pay securely. Our team reviews every application.</p>
+  <div class="card pad">
+    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Visa type</label><select id="visa-type"></select></div>
+      <div class="field"><label>Travel date</label><input type="date" id="visa-date"></div>
+      <div class="field"><label>Applicant full name</label><input id="visa-applicant" placeholder="As in passport"></div>
+      <div class="field"><label>Nationality</label><input id="visa-nationality" placeholder="e.g. United Arab Emirates"></div>
+      <div class="field"><label>Passport number</label><input id="visa-passport" placeholder="A1234567"></div>
+    </div>
+    <div style="margin-top:16px"><button class="btn primary" onclick="submitVisaRequest()">Create request</button>
+      <a class="btn ghost" href="visa-status.html" style="margin-left:10px">My requests</a></div>
+    <p style="margin-top:12px;color:#667">After creating the request you can upload documents and pay. No real card is charged in test mode.</p>
+  </div>
+</div></section></main>
+<div id="site-footer"></div><script src="../js/app.js"></script>
 </body></html>

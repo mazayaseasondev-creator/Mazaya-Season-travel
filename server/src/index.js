@@ -4,9 +4,13 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import multer from 'multer';
 import { config } from './config.js';
 import { migrate } from './db.js';
 import { authRouter } from './auth.js';
+import { visaTypesRouter, visasRouter } from './visas.js';
+import { paymentsRouter } from './payments.js';
+import { adminRouter } from './admin.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..', '..');
@@ -26,10 +30,28 @@ export function createApp() {
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
   app.use('/api/auth', authLimiter, authRouter);
 
+  // Phase 2: visa products, requests + documents, payments, and the admin queue.
+  app.use('/api/visa-types', visaTypesRouter);
+  app.use('/api/visas', visasRouter);
+  app.use('/api/payments', paymentsRouter);
+  app.use('/api/admin', adminRouter);
+
   // Serve the existing static front-end (defaults to the repo root) so the site
   // and the API share one origin.
   const staticDir = process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : repoRoot;
   app.use(express.static(staticDir));
+
+  // Turn known errors (upload limits, bad file types) into clean JSON for the
+  // API; fall back to a generic 500 for anything unexpected.
+  app.use((err, req, res, _next) => {
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large' : 'Upload rejected';
+      return res.status(400).json({ error: msg });
+    }
+    const status = err.status || 500;
+    if (status >= 500) console.error(err);
+    res.status(status).json({ error: status >= 500 ? 'Server error' : err.message });
+  });
 
   return app;
 }
