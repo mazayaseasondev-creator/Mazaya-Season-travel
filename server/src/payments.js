@@ -6,12 +6,16 @@ import { gateway } from './gateways/index.js';
 import { loadVisaRequest } from './visas.js';
 import { loadHotelBooking, confirmHotelBooking } from './hotels.js';
 import { loadFlightBooking, confirmFlightBooking } from './flights.js';
+import { loadTourBooking, confirmTourBooking } from './tours.js';
 
 export const paymentsRouter = express.Router();
 paymentsRouter.use(requireAuth);
 
 function publicPayment(p) {
-  const kind = p.visa_request_id ? 'visa' : (p.hotel_booking_id ? 'hotel' : (p.flight_booking_id ? 'flight' : null));
+  const kind = p.visa_request_id ? 'visa'
+    : p.hotel_booking_id ? 'hotel'
+    : p.flight_booking_id ? 'flight'
+    : p.tour_booking_id ? 'tour' : null;
   return {
     ref: p.provider_ref,
     provider: p.provider,
@@ -23,6 +27,7 @@ function publicPayment(p) {
     visaRequestId: p.visa_request_id,
     hotelBookingId: p.hotel_booking_id,
     flightBookingId: p.flight_booking_id,
+    tourBookingId: p.tour_booking_id,
   };
 }
 
@@ -101,6 +106,23 @@ paymentsRouter.post('/flight/:id/checkout', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Pay for a tour booking.
+paymentsRouter.post('/tour/:id/checkout', async (req, res, next) => {
+  try {
+    const booking = await loadTourBooking(req.params.id, req.user);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.status !== 'pending_payment') {
+      return res.status(409).json({ error: `This booking is "${booking.status}" and cannot be paid` });
+    }
+    await startCheckout({
+      user: req.user, column: 'tour_booking_id', itemId: booking.id,
+      amountCents: booking.amount_cents, currency: booking.currency,
+      description: `Tour: ${booking.tour_name}`,
+      returnUrl: `${config.publicBaseUrl}/pages/tour-bookings.html`,
+    }, res);
+  } catch (e) { next(e); }
+});
+
 // Look up a payment's status (owner or admin).
 paymentsRouter.get('/:ref', async (req, res, next) => {
   try {
@@ -155,5 +177,8 @@ async function fulfillPayment(payment) {
   }
   if (payment.flight_booking_id) {
     await confirmFlightBooking(payment.flight_booking_id);
+  }
+  if (payment.tour_booking_id) {
+    await confirmTourBooking(payment.tour_booking_id);
   }
 }

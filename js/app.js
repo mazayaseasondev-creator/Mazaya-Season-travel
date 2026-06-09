@@ -235,6 +235,7 @@ async function payVisa(id){
 function paymentReturnPage(kind){
   if (kind === 'hotel') return 'hotel-bookings.html';
   if (kind === 'flight') return 'flight-bookings.html';
+  if (kind === 'tour') return 'tour-bookings.html';
   return 'visa-status.html';
 }
 function fmtDateTime(iso){
@@ -439,6 +440,97 @@ async function cancelFlightBooking(id){
   renderFlightBookings();
 }
 
+/* --- Tour search + booking (pages/tours.html) --- */
+function initTours(){
+  const dd = document.getElementById('t-date');
+  if (dd && !dd.value){ const d = new Date(Date.now() + 14 * 864e5); dd.value = d.toISOString().slice(0, 10); }
+}
+// Keep the last search results so the Book button can read the chosen options.
+let _tourResults = [];
+async function searchTours(){
+  const city = (document.getElementById('t-city') || {}).value || '';
+  const date = (document.getElementById('t-date') || {}).value || '';
+  const travellers = (document.getElementById('t-travellers') || {}).value || '1';
+  const wrap = document.getElementById('tour-results');
+  if (!wrap) return;
+  if (!city || !date){ toast('Enter a city and date'); return; }
+  wrap.innerHTML = '<div class="card pad">Searching…</div>';
+  const q = `?city=${encodeURIComponent(city)}&date=${date}&travellers=${encodeURIComponent(travellers)}`;
+  const r = await apiGet('/api/tours/search' + q);
+  if (!r.ok){ wrap.innerHTML = `<div class="card pad">${esc(r.data.error || 'Search failed')}</div>`; return; }
+  _tourResults = r.data.tours || [];
+  if (!_tourResults.length){ wrap.innerHTML = '<div class="card pad">No tours found.</div>'; return; }
+  const opt = (o) => `<option value="${esc(o.code)}">${esc(o.name)}${o.priceDelta ? ' (+' + esc(money(o.priceDelta, '')) + ')' : ''}</option>`;
+  wrap.innerHTML = _tourResults.map((t, i) => `
+    <div class="card pad" style="margin-bottom:16px">
+      <h3 style="margin:0">${esc(t.name)}</h3>
+      <p style="margin:4px 0;color:#667">${esc(t.city)} · ${t.durationHours}h · from ${esc(money(t.basePrice, t.currency))}/person</p>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label>Transfer</label><select id="transfer-${i}">${t.transferOptions.map(opt).join('')}</select></div>
+        <div class="field"><label>Guide</label><select id="guide-${i}">${t.guideOptions.map(opt).join('')}</select></div>
+      </div>
+      <div style="margin-top:12px"><button class="btn primary" data-book-tour="${i}">Book</button></div>
+    </div>`).join('');
+}
+async function bookTour(i){
+  const t = _tourResults[i];
+  if (!t) return;
+  if (!(await currentUser())){ location.href = 'login.html'; return; }
+  const travellers = (document.getElementById('t-travellers') || {}).value || '1';
+  const transferCode = (document.getElementById('transfer-' + i) || {}).value;
+  const guideCode = (document.getElementById('guide-' + i) || {}).value;
+  const leadTraveller = prompt(`Lead traveller name for ${t.name}:`);
+  if (!leadTraveller) return;
+  let r;
+  try { r = await api('/api/tours/bookings', { tourKey: t.tourKey, transferCode, guideCode, leadTraveller, travellers }); }
+  catch (e) { toast('Cannot reach the server.'); return; }
+  if (!r.ok){ toast(r.data.error || 'Could not create booking'); return; }
+  const pay = await api(`/api/payments/tour/${r.data.booking.id}/checkout`, {});
+  if (!pay.ok){ toast(pay.data.error || 'Could not start payment'); return; }
+  location.href = pay.data.redirectUrl;
+}
+
+/* --- My tour bookings (pages/tour-bookings.html) --- */
+async function initTourBookings(){
+  if (!(await requireSession())) return;
+  await renderTourBookings();
+}
+async function renderTourBookings(){
+  const wrap = document.getElementById('tour-booking-list');
+  if (!wrap) return;
+  const r = await apiGet('/api/tours/bookings');
+  if (!r.ok){ wrap.innerHTML = '<div class="card pad">Could not load your bookings.</div>'; return; }
+  const bookings = r.data.bookings || [];
+  if (!bookings.length){ wrap.innerHTML = '<div class="card pad">No tour bookings yet. <a href="tours.html">Search tours</a>.</div>'; return; }
+  wrap.innerHTML = bookings.map(b => `
+    <div class="card pad" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><h3 style="margin:0">${esc(b.tourName)}</h3>
+          <p style="margin:4px 0;color:#667">${esc(b.city)} · ${esc(b.date)} · ${b.travellers} traveller(s)</p>
+          <p style="margin:4px 0;color:#667">Transfer: ${esc(b.transferOption)} · Guide: ${esc(b.guideOption)} · ${esc(money(b.amount, b.currency))}</p>
+          <p style="margin:4px 0;color:#667">Lead: ${esc(b.leadTraveller)}</p>
+          ${b.voucherCode ? `<p style="margin:4px 0"><b>Voucher:</b> ${esc(b.voucherCode)}</p>` : ''}</div>
+        <div>${statusBadge(b.status)}</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+        ${b.status === 'pending_payment' ? `<button class="btn primary" data-pay-tour="${b.id}">Pay ${esc(money(b.amount, b.currency))}</button>` : ''}
+        ${(b.status === 'pending_payment' || b.status === 'confirmed') ? `<button class="btn ghost" data-cancel-tour="${b.id}">Cancel</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+async function payTourBooking(id){
+  const r = await api(`/api/payments/tour/${id}/checkout`, {});
+  if (!r.ok){ toast(r.data.error || 'Could not start payment'); return; }
+  location.href = r.data.redirectUrl;
+}
+async function cancelTourBooking(id){
+  if (!confirm('Cancel this booking?')) return;
+  const r = await api(`/api/tours/bookings/${id}/cancel`, {});
+  if (!r.ok){ toast(r.data.error || 'Could not cancel'); return; }
+  toast('Booking cancelled');
+  renderTourBookings();
+}
+
 /* --- Admin visa queue (admin/index.html) --- */
 async function initAdminVisas(){
   const wrap = document.getElementById('admin-visa-queue');
@@ -522,6 +614,27 @@ async function initAdminFlights(){
   wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Passenger</th><th>Flight</th><th>Departs</th><th>Amount</th><th>Status</th><th>PNR / tickets</th></tr>${rows || '<tr><td colspan="7">No bookings yet.</td></tr>'}</table>`;
 }
 
+/* Admin tour bookings (read-only list in admin/index.html). */
+async function initAdminTours(){
+  const wrap = document.getElementById('admin-tour-bookings');
+  if (!wrap) return;
+  const u = await currentUser();
+  if (!u || u.role !== 'admin'){ wrap.innerHTML = ''; return; }
+  const r = await apiGet('/api/admin/tour-bookings');
+  if (!r.ok){ wrap.innerHTML = 'Could not load tour bookings.'; return; }
+  const rows = (r.data.bookings || []).map(b => `
+    <tr>
+      <td>#${b.id}</td>
+      <td>${esc(b.leadTraveller)}<br><small style="color:#889">${esc(b.customer.email || b.customer.mobile || '')}</small></td>
+      <td>${esc(b.tourName)}<br><small style="color:#889">${esc(b.city)} · ${esc(b.date)}</small></td>
+      <td>${esc(b.transferOption)} / ${esc(b.guideOption)}</td>
+      <td>${esc(money(b.amount, b.currency))}</td>
+      <td>${statusBadge(b.status)}</td>
+      <td>${esc(b.voucherCode || '—')}</td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="table"><tr><th>Ref</th><th>Traveller</th><th>Tour</th><th>Transfer / guide</th><th>Amount</th><th>Status</th><th>Voucher</th></tr>${rows || '<tr><td colspan="7">No bookings yet.</td></tr>'}</table>`;
+}
+
 /* Delegated clicks for the Phase 2/3 pages (buttons are injected dynamically). */
 document.addEventListener('click', e => {
   const up = e.target.closest('[data-upload]'); if (up) uploadVisaDocs(up.dataset.upload);
@@ -533,6 +646,9 @@ document.addEventListener('click', e => {
   const bo = e.target.closest('[data-book-offer]'); if (bo) bookFlightOffer(bo.dataset.bookOffer, bo.dataset.flight);
   const pf = e.target.closest('[data-pay-flight]'); if (pf) payFlightBooking(pf.dataset.payFlight);
   const cf = e.target.closest('[data-cancel-flight]'); if (cf) cancelFlightBooking(cf.dataset.cancelFlight);
+  const bt = e.target.closest('[data-book-tour]'); if (bt) bookTour(bt.dataset.bookTour);
+  const pt = e.target.closest('[data-pay-tour]'); if (pt) payTourBooking(pt.dataset.payTour);
+  const ct = e.target.closest('[data-cancel-tour]'); if (ct) cancelTourBooking(ct.dataset.cancelTour);
 });
 
 /* Page routing */
@@ -544,4 +660,6 @@ if (path.endsWith('/hotels.html')) initHotels();
 if (path.endsWith('/hotel-bookings.html')) initHotelBookings();
 if (path.endsWith('/results.html')) initFlights();
 if (path.endsWith('/flight-bookings.html')) initFlightBookings();
-if (path.includes('/admin/')) { initAdminVisas(); initAdminHotels(); initAdminFlights(); }
+if (path.endsWith('/tours.html')) initTours();
+if (path.endsWith('/tour-bookings.html')) initTourBookings();
+if (path.includes('/admin/')) { initAdminVisas(); initAdminHotels(); initAdminFlights(); initAdminTours(); }

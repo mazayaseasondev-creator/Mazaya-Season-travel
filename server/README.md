@@ -17,18 +17,19 @@ A Node.js + Express server backed by PostgreSQL, delivering the roadmap in
   ready for credentials.
 - An **admin queue** to review requests and set their status.
 
-**Phase 3 — Hotels & Flights**
-- Hotels: **search → book → pay → voucher → cancel** through a provider-agnostic
-  supplier (built-in **simulated** bedbank, plus a **Hotelbeds** stub).
+**Phase 3 — Hotels, Flights & Tours**
+- Hotels: **search → book → pay → voucher → cancel** (built-in **simulated**
+  bedbank, plus a **Hotelbeds** stub).
 - Flights: **search → hold (PNR + ticketing deadline) → pay → ticket → cancel**
-  through a provider-agnostic supplier (built-in **simulated** GDS, plus an
-  **Amadeus** stub).
-- Quoted rates/offers are signed (tamper-evident) so prices can be trusted at
-  booking time; payment reuses the Phase 2 gateway and fulfils the purchase
-  (voucher for hotels, ticket numbers for flights) on capture.
+  (built-in **simulated** GDS, plus an **Amadeus** stub).
+- Tours: **search → choose transfer/guide → book → pay → voucher → cancel**
+  (built-in **simulated** supplier, plus a **Viator** stub).
+- Quoted rates/offers (including tour add-on prices) are signed (tamper-evident)
+  so prices can be trusted at booking time; payment reuses the Phase 2 gateway
+  and fulfils the purchase (voucher or ticket numbers) on capture.
 
-> The tours supplier API is **not** part of these phases yet — see the roadmap
-> in `docs/BACKEND-PLAN.md`.
+> Phase 3 product lines are complete. Remaining roadmap: **Phase 4 — admin
+> dashboard + go-live**; see `docs/BACKEND-PLAN.md`.
 
 ## Requirements
 
@@ -106,6 +107,20 @@ status flow is `pending_payment → confirmed → cancelled`.
 Paying a flight booking issues the ticket(s) with the supplier; the status flow
 is `pending_payment → ticketed → cancelled`.
 
+### Tours (Phase 3)
+| Method | Path                               | Purpose                                          |
+|--------|------------------------------------|--------------------------------------------------|
+| GET    | `/api/tours/search`                | `?city=&date=&travellers=` (public)              |
+| POST   | `/api/tours/bookings`              | Book from a `tourKey` + `transferCode`/`guideCode` (auth) |
+| GET    | `/api/tours/bookings`              | My bookings (auth)                               |
+| GET    | `/api/tours/bookings/:id`          | One booking (owner/admin)                        |
+| POST   | `/api/tours/bookings/:id/cancel`   | Cancel a booking (owner)                         |
+| POST   | `/api/payments/tour/:id/checkout`  | Pay for a booking — returns gateway `redirectUrl`|
+
+Transfer and guide option prices are signed into the `tourKey`, so the add-on
+cost is validated server-side. Paying confirms the booking and issues a voucher;
+the status flow is `pending_payment → confirmed → cancelled`.
+
 ### Admin (role `admin`)
 | Method | Path                          | Purpose                                |
 |--------|-------------------------------|----------------------------------------|
@@ -115,6 +130,7 @@ is `pending_payment → ticketed → cancelled`.
 | PATCH  | `/api/admin/visas/:id`        | Body `{ status?, note? }` — update     |
 | GET    | `/api/admin/hotel-bookings`   | Hotel bookings, optional `?status=`    |
 | GET    | `/api/admin/flight-bookings`  | Flight bookings, optional `?status=`   |
+| GET    | `/api/admin/tour-bookings`    | Tour bookings, optional `?status=`     |
 
 Grant admin access by listing an email/mobile in `ADMIN_IDENTIFIERS`; that user
 becomes an admin the next time they log in.
@@ -130,6 +146,7 @@ npm run smoke        # Phase 1: auth flow
 npm run smoke:visas  # Phase 2: visa requests, uploads, payment, admin queue
 npm run smoke:hotels # Phase 3: hotel search, booking, payment, voucher, cancel
 npm run smoke:flights # Phase 3: flight search, hold/PNR, payment, ticket, cancel
+npm run smoke:tours  # Phase 3: tour search, options, payment, voucher, cancel
 ```
 
 ## Security notes

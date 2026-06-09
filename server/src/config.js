@@ -24,6 +24,10 @@ const hotelSupplier = process.env.HOTEL_SUPPLIER || (isProd ? 'hotelbeds' : 'sim
 // 'amadeus' is the real Amadeus integration (needs a commercial contract).
 const flightSupplier = process.env.FLIGHT_SUPPLIER || (isProd ? 'amadeus' : 'simulated');
 
+// Tours/activities supplier. 'simulated' is a built-in test supplier; 'viator'
+// is the real Viator integration (needs a commercial contract).
+const tourSupplier = process.env.TOUR_SUPPLIER || (isProd ? 'viator' : 'simulated');
+
 export const config = {
   port: parseInt(process.env.PORT || '4000', 10),
   isProd,
@@ -49,9 +53,10 @@ export const config = {
   // Public origin used to build payment return URLs. Defaults to localhost in dev.
   publicBaseUrl: process.env.PUBLIC_BASE_URL || `http://localhost:${parseInt(process.env.PORT || '4000', 10)}`,
 
-  // --- Phase 3: hotels + flights ---
+  // --- Phase 3: hotels + flights + tours ---
   hotelSupplier,
   flightSupplier,
+  tourSupplier,
   // Secret used to sign supplier rate/offer keys so quoted prices can be trusted
   // when a customer hands one back at booking time. Falls back to JWT_SECRET.
   rateKeySecret: process.env.RATE_KEY_SECRET || process.env.JWT_SECRET || 'dev-insecure-jwt-secret',

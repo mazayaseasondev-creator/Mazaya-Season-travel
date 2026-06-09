@@ -9,8 +9,10 @@
   simulated bedbank (Hotelbeds stub ready), with an admin booking list.
 - ✅ **Phase 3 — Flights:** search → hold (PNR + ticketing deadline) → pay →
   ticket → cancel via a simulated GDS (Amadeus stub ready), with an admin list.
-- ⬜ **Phase 3 (cont.) — Tours** (supplier API).
-- ⬜ **Phase 4 — Admin + go-live.**
+- ✅ **Phase 3 — Tours:** search → choose transfer/guide → book → pay → voucher
+  → cancel via a simulated supplier (Viator stub ready), with an admin list.
+- ⬜ **Phase 4 — Admin dashboard + go-live** (real dashboard metrics, security
+  hardening, custom domain, staging vs production, SEO/analytics).
 
 See `docs/BACKEND-PLAN.md` for the full roadmap and `server/README.md` for the
 current API.
