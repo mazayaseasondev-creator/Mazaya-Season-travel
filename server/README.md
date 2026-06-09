@@ -151,6 +151,11 @@ Paying a request (simulated or real) advances it to `in_review`.
 
 ## Tests
 
+[![CI](https://github.com/mazayaseasondev-creator/Mazaya-Season-travel/actions/workflows/ci.yml/badge.svg)](https://github.com/mazayaseasondev-creator/Mazaya-Season-travel/actions/workflows/ci.yml)
+
+These run automatically on every pull request and push to `main` via GitHub
+Actions (`.github/workflows/ci.yml`), against Node 22 + PostgreSQL 16.
+
 ```bash
 npm test             # runs all smoke suites
 npm run smoke        # Phase 1: auth flow
