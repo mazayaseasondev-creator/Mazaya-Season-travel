@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Update the host below to your production domain before submitting to search engines. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.mazayaseason.travel/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/results.html</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/hotels.html</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/tours.html</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/visas.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/deals.html</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/about.html</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/contact.html</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://www.mazayaseason.travel/pages/faq.html</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+</urlset>

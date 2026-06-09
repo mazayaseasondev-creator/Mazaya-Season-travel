@@ -1,0 +1,48 @@
+# Local / staging stack: the app + PostgreSQL.
+# Usage:
+#   cp server/.env.example .env   # then set strong secrets for staging/prod
+#   docker compose up --build
+# The server runs its idempotent migrations on start.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mazaya
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mazaya}
+      POSTGRES_DB: mazaya
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mazaya"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Production refuses simulated providers; use NODE_ENV=development for a
+      # staging demo that runs entirely on the built-in simulated suppliers.
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      DATABASE_URL: postgres://mazaya:${POSTGRES_PASSWORD:-mazaya}@db:5432/mazaya
+      # Set strong secrets and real providers before exposing this publicly:
+      JWT_SECRET: ${JWT_SECRET:?set a strong JWT_SECRET}
+      OTP_SECRET: ${OTP_SECRET:?set a strong OTP_SECRET}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-simulated}
+      HOTEL_SUPPLIER: ${HOTEL_SUPPLIER:-simulated}
+      FLIGHT_SUPPLIER: ${FLIGHT_SUPPLIER:-simulated}
+      TOUR_SUPPLIER: ${TOUR_SUPPLIER:-simulated}
+      ADMIN_IDENTIFIERS: ${ADMIN_IDENTIFIERS:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:4000}
+    ports:
+      - "4000:4000"
+    volumes:
+      - uploads:/app/server/uploads
+
+volumes:
+  db-data:
+  uploads:
