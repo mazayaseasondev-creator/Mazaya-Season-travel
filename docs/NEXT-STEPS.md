@@ -1,5 +1,24 @@
 # Mazaya OTA Website – Next Development Steps
 
+## Progress
+
+- ✅ **Phase 1 — Foundation:** server + PostgreSQL + real OTP login (`/server`).
+- ✅ **Phase 2 — Visas first (+ payments):** visa catalogue, customer requests,
+  document upload, simulated N-Genius payment, and an admin review queue.
+- ✅ **Phase 3 — Hotels:** search → book → pay → voucher → cancel via a
+  simulated bedbank (Hotelbeds stub ready), with an admin booking list.
+- ✅ **Phase 3 — Flights:** search → hold (PNR + ticketing deadline) → pay →
+  ticket → cancel via a simulated GDS (Amadeus stub ready), with an admin list.
+- ✅ **Phase 3 — Tours:** search → choose transfer/guide → book → pay → voucher
+  → cancel via a simulated supplier (Viator stub ready), with an admin list.
+- ⬜ **Phase 4 — Admin dashboard + go-live** (real dashboard metrics, security
+  hardening, custom domain, staging vs production, SEO/analytics).
+
+See `docs/BACKEND-PLAN.md` for the full roadmap and `server/README.md` for the
+current API.
+
+---
+
 This package includes the first complete build-out from the design system:
 
 - Marketing home page
