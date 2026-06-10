@@ -23,6 +23,11 @@ async function patch(path, body){
   let data = {}; try { data = await res.json(); } catch (e) {}
   return { ok: res.ok, status: res.status, data };
 }
+async function del(path){
+  const res = await fetch(path, { method:'DELETE', credentials:'include' });
+  let data = {}; try { data = await res.json(); } catch (e) {}
+  return { ok: res.ok, status: res.status, data };
+}
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money = (a, c) => (c || 'AED') + ' ' + Number(a || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'}); }
@@ -547,6 +552,96 @@ async function viewNotifications(el){
   el.innerHTML = panel('Compose', compose) + panel('Notification log', table(['Channel','Recipient','Subject','Status','Sent'], rows, 'No notifications yet.'));
 }
 
+/* ===================== generic content collections ===================== */
+function cInput(f, val=''){
+  const base = 'margin-top:5px;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:14px';
+  if (f.type==='textarea') return `<textarea data-cfield="${f.key}" rows="2" placeholder="${esc(f.label)}" style="${base};font-family:inherit">${esc(val)}</textarea>`;
+  if (f.type==='select') return `<select data-cfield="${f.key}" style="${base}">${(f.options||[]).map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`;
+  const t = f.type==='number'?'number':f.type==='color'?'color':f.type==='date'?'date':'text';
+  return `<input data-cfield="${f.key}" type="${t}" value="${esc(val)}" placeholder="${esc(f.label)}" style="${base}">`;
+}
+const block = (title, label) => ({ title, addLabel:label,
+  fields:[{key:'title',label:'Title'},{key:'subtitle',label:'Subtitle'},{key:'imageUrl',label:'Image URL'},{key:'link',label:'Link'}], cols:['title','subtitle'] });
+const SCHEMAS = {
+  'faqs': { title:'FAQs', addLabel:'FAQ', desc:'Questions shown on the public help page.',
+    fields:[{key:'question',label:'Question'},{key:'answer',label:'Answer',type:'textarea'}], cols:['question','answer'] },
+  'static-pages': { title:'Static pages', addLabel:'page', desc:'CMS pages (about, terms, privacy…).',
+    fields:[{key:'slug',label:'Slug'},{key:'title',label:'Title'},{key:'body',label:'Body',type:'textarea'}], cols:['slug','title'] },
+  'block-sliders': block('Home sliders','slide'),
+  'block-pillars': { title:'Main pillars', addLabel:'pillar', fields:[{key:'title',label:'Title'},{key:'subtitle',label:'Subtitle'},{key:'icon',label:'Icon'}], cols:['title','subtitle'] },
+  'block-offers': block('Offers','offer'),
+  'block-testimonials': { title:'Customer testimonials', addLabel:'testimonial', fields:[{key:'name',label:'Name'},{key:'quote',label:'Quote',type:'textarea'},{key:'rating',label:'Rating',type:'number'}], cols:['name','quote'] },
+  'block-partners': { title:'Partner logos', addLabel:'partner', fields:[{key:'name',label:'Name'},{key:'logoUrl',label:'Logo URL'}], cols:['name','logoUrl'] },
+  'block-register': { title:'Register pillars', addLabel:'pillar', fields:[{key:'title',label:'Title'},{key:'subtitle',label:'Subtitle'}], cols:['title','subtitle'] },
+  'block-banners': { title:'Product banners', addLabel:'banner', fields:[{key:'title',label:'Title'},{key:'imageUrl',label:'Image URL'},{key:'link',label:'Link'}], cols:['title','link'] },
+  'pkg-countries': { title:'Countries', addLabel:'country', fields:[{key:'name',label:'Name'},{key:'code',label:'ISO code'}], cols:['name','code'] },
+  'pkg-zones': { title:'Zones', addLabel:'zone', fields:[{key:'name',label:'Name'},{key:'country',label:'Country'}], cols:['name','country'] },
+  'pkg-programs': { title:'Programs', addLabel:'program', fields:[{key:'name',label:'Name'},{key:'country',label:'Country'},{key:'nights',label:'Nights',type:'number'},{key:'price',label:'Price (AED)',type:'number'}], cols:['name','country','nights','price'] },
+  'pkg-activities': { title:'Activities', addLabel:'activity', fields:[{key:'name',label:'Name'},{key:'city',label:'City'},{key:'price',label:'Price (AED)',type:'number'}], cols:['name','city','price'] },
+  'hotel-list': { title:'Hotels', addLabel:'hotel', fields:[{key:'name',label:'Name'},{key:'city',label:'City'},{key:'rating',label:'Stars',type:'number'}], cols:['name','city','rating'] },
+  'hotel-facts-group': { title:'Facts groups', addLabel:'group', fields:[{key:'name',label:'Name'}], cols:['name'] },
+  'hotel-facts': { title:'Facts', addLabel:'fact', fields:[{key:'name',label:'Name'},{key:'group',label:'Group'}], cols:['name','group'] },
+  'hotel-suppliers': { title:'Hotel suppliers', addLabel:'supplier', fields:[{key:'name',label:'Name'},{key:'type',label:'Type',type:'select',options:['Bedbank','Direct contract','Channel manager']}], cols:['name','type'] },
+  'hotel-room-translations': { title:'Room translations', addLabel:'translation', fields:[{key:'roomCode',label:'Room code'},{key:'en',label:'English'},{key:'ar',label:'Arabic'}], cols:['roomCode','en','ar'] },
+  'ancillary-products': { title:'Ancillary products', addLabel:'product', fields:[{key:'name',label:'Name'},{key:'type',label:'Type',type:'select',options:['Baggage','Seat','Insurance','Transfer','Meal']},{key:'price',label:'Price (AED)',type:'number'}], cols:['name','type','price'] },
+  'ancillary-displays': { title:'Ancillary displays', addLabel:'display', fields:[{key:'name',label:'Name'},{key:'placement',label:'Placement',type:'select',options:['Checkout','Search results','Booking page']}], cols:['name','placement'] },
+  'b2b-agencies': { title:'B2B agencies', addLabel:'agency', desc:'Sub-agents who book on credit.', fields:[{key:'name',label:'Agency name'},{key:'contact',label:'Contact'},{key:'creditLimit',label:'Credit limit (AED)',type:'number'},{key:'markup',label:'Markup %',type:'number'}], cols:['name','contact','creditLimit','markup'] },
+  'geo-states': { title:'States', addLabel:'state', fields:[{key:'name',label:'Name'},{key:'country',label:'Country'}], cols:['name','country'] },
+  'geo-cities': { title:'Cities', addLabel:'city', fields:[{key:'name',label:'Name'},{key:'country',label:'Country'},{key:'code',label:'Code'}], cols:['name','country','code'] },
+  'geo-cities-mapping': { title:'Cities mapping', addLabel:'mapping', fields:[{key:'ourCity',label:'Our city'},{key:'supplier',label:'Supplier'},{key:'supplierCode',label:'Supplier code'}], cols:['ourCity','supplier','supplierCode'] },
+  'geo-autocomplete': { title:'Autocomplete terms', addLabel:'term', fields:[{key:'term',label:'Term'},{key:'type',label:'Type',type:'select',options:['City','Airport','Hotel','Country']}], cols:['term','type'] },
+  'geo-zones': { title:'GEO zones', addLabel:'zone', fields:[{key:'name',label:'Name'},{key:'country',label:'Country'}], cols:['name','country'] },
+  'geo-airports': { title:'Airports', addLabel:'airport', fields:[{key:'code',label:'IATA code'},{key:'name',label:'Name'},{key:'city',label:'City'}], cols:['code','name','city'] },
+  'translations': { title:'Translations', addLabel:'string', desc:'EN/AR copy used across the platform.', fields:[{key:'key',label:'Key'},{key:'en',label:'English'},{key:'ar',label:'Arabic'}], cols:['key','en','ar'] },
+};
+function collectionView(collection){
+  return async el => {
+    const sc = SCHEMAS[collection];
+    el.innerHTML = '<div class="empty">Loading…</div>';
+    const r = await getJSON(`/api/admin/content/${collection}`);
+    const items = r.ok ? r.data.items : [];
+    const cols = sc.cols || sc.fields.map(f=>f.key);
+    const headers = cols.map(k => (sc.fields.find(f=>f.key===k)||{label:k}).label).concat(['Active','']);
+    const rows = items.map(it => {
+      const cells = cols.map(k => esc(String(it[k]==null?'':it[k])).slice(0,140));
+      cells.push(`<button class="btn sm" data-content-toggle="${collection}:${it.id}:${it.active?0:1}">${it.active?'On':'Off'}</button>`);
+      cells.push(`<button class="btn sm danger" data-content-del="${collection}:${it.id}">Delete</button>`);
+      return cells;
+    });
+    const ncol = Math.min(sc.fields.length, 3);
+    const form = `<div data-cform="${collection}" style="display:grid;grid-template-columns:repeat(${ncol},1fr);gap:12px;max-width:920px;padding:6px 0">
+        ${sc.fields.map(f=>`<label style="font-size:12px;font-weight:600${f.type==='textarea'?';grid-column:1/-1':''}">${esc(f.label)}<br>${cInput(f)}</label>`).join('')}
+      </div><button class="btn primary" data-content-create="${collection}">Add ${esc(sc.addLabel||'item')}</button>`;
+    el.innerHTML = (sc.desc?`<p class="muted-note">${esc(sc.desc)}</p>`:'')
+      + panel('Add ' + (sc.addLabel||'item'), form)
+      + panel(sc.title, table(headers, rows, 'Nothing yet — add the first one above.'));
+  };
+}
+function logView(collection, title, desc){
+  return async el => {
+    el.innerHTML = '<div class="empty">Loading…</div>';
+    const r = await getJSON(`/api/admin/content/${collection}`);
+    const items = r.ok ? r.data.items : [];
+    let headers, rows;
+    if (collection==='activity'){
+      headers = ['Action','Detail','When'];
+      rows = items.map(it=>[`<span class="pill">${esc(it.action||'')}</span>`, esc(JSON.stringify(it.detail||{})), esc(fmtDateTime(it.createdAt))]);
+    } else {
+      headers = ['Event','When'];
+      rows = items.map(it=>{ const {id,position,active,createdAt,updatedAt,...rest}=it; return [esc(JSON.stringify(rest)), esc(fmtDateTime(it.createdAt))]; });
+    }
+    el.innerHTML = `<p class="muted-note">${esc(desc)}</p>` + panel(title, table(headers, rows, 'No entries yet.'));
+  };
+}
+async function viewSystemSettings(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/settings');
+  const s = r.ok ? r.data.settings : {};
+  const rows = Object.keys(s).sort().map(k=>[`<code>${esc(k)}</code>`, esc(String(s[k]).slice(0,120))]);
+  el.innerHTML = `<p class="muted-note">Stored configuration (edit company/brand values under Company Settings).</p>`
+    + panel('System settings', table(['Key','Value'], rows, 'No settings.'));
+}
+
 /* ============================ navigation ============================ */
 const S = scaffold; // alias
 const NAV = [
@@ -570,20 +665,20 @@ const NAV = [
     ]},
   ]},
   { id:'packages', label:'Packages', icon:'layers', children:[
-    { id:'pk-countries', label:'Countries', view:S('Countries','Countries you sell packages in.') },
-    { id:'pk-zones', label:'Zones', view:S('Zones','Geographic zones grouping destinations.') },
-    { id:'pk-programs', label:'Programs', view:S('Programs','Multi-day holiday programs and itineraries.') },
-    { id:'pk-activities', label:'Activities', view:S('Activities','Tours & activities that make up a package.') },
+    { id:'pk-countries', label:'Countries', view:collectionView('pkg-countries') },
+    { id:'pk-zones', label:'Zones', view:collectionView('pkg-zones') },
+    { id:'pk-programs', label:'Programs', view:collectionView('pkg-programs') },
+    { id:'pk-activities', label:'Activities', view:collectionView('pkg-activities') },
   ]},
   { id:'hotels', label:'Hotels', icon:'bed', children:[
-    { id:'h-hotels', label:'Hotels', view:S('Hotel Inventory','Directly-contracted hotels and their content.') },
-    { id:'h-factsg', label:'Facts Group', view:S('Facts Group','Groupings of hotel facilities/facts.') },
-    { id:'h-facts', label:'Facts', view:S('Facts','Individual hotel facilities (pool, wifi, parking…).') },
-    { id:'h-suppliers', label:'Hotel Suppliers', view:S('Hotel Suppliers','Bedbanks and direct-contract suppliers.') },
-    { id:'h-roomtr', label:'Room Translations', view:S('Room Translations','Localised room-type names.') },
+    { id:'h-hotels', label:'Hotels', view:collectionView('hotel-list') },
+    { id:'h-factsg', label:'Facts Group', view:collectionView('hotel-facts-group') },
+    { id:'h-facts', label:'Facts', view:collectionView('hotel-facts') },
+    { id:'h-suppliers', label:'Hotel Suppliers', view:collectionView('hotel-suppliers') },
+    { id:'h-roomtr', label:'Room Translations', view:collectionView('hotel-room-translations') },
   ]},
   { id:'b2b', label:'B2B', icon:'globe', children:[
-    { id:'b2b-agencies', label:'Agencies', view:S('B2B Agencies','Sub-agents, credit limits and commissions.') },
+    { id:'b2b-agencies', label:'Agencies', view:collectionView('b2b-agencies') },
     { id:'b2b-orders', label:'Orders', view:viewAllOrders },
   ]},
   { id:'payments', label:'Payments', icon:'card', children:[
@@ -614,7 +709,7 @@ const NAV = [
   { id:'customers', label:'Customers', icon:'users', view:viewCustomers },
   { id:'crm', label:'CRM', icon:'mail', children:[
     { id:'crm-messages', label:'Messages', view:viewLeads },
-    { id:'crm-faq', label:'FAQ', view:S('FAQ','Manage public help/FAQ content.') },
+    { id:'crm-faq', label:'FAQ', view:collectionView('faqs') },
   ]},
   { id:'notifications', label:'Notifications', icon:'bell', children:[
     { id:'nt-notifications', label:'Notifications', view:viewNotifications },
@@ -633,40 +728,40 @@ const NAV = [
     { id:'ur-users', label:'Users', view:viewUsers },
   ]},
   { id:'geo', label:'TK GEO Locations', icon:'pin', children:[
-    { id:'geo-states', label:'States', view:S('States','States / provinces.') },
-    { id:'geo-cities', label:'Cities', view:S('Cities','Cities and their codes.') },
-    { id:'geo-citymap', label:'Cities Mapping', view:S('Cities Mapping','Map supplier city codes to yours.') },
-    { id:'geo-auto', label:'Autocomplete', view:S('Autocomplete','Search autocomplete dictionary.') },
-    { id:'geo-zones', label:'Zones', view:S('GEO Zones','Geographic zones.') },
-    { id:'geo-airports', label:'Airports', view:S('Airports','Airport codes and metadata.') },
+    { id:'geo-states', label:'States', view:collectionView('geo-states') },
+    { id:'geo-cities', label:'Cities', view:collectionView('geo-cities') },
+    { id:'geo-citymap', label:'Cities Mapping', view:collectionView('geo-cities-mapping') },
+    { id:'geo-auto', label:'Autocomplete', view:collectionView('geo-autocomplete') },
+    { id:'geo-zones', label:'Zones', view:collectionView('geo-zones') },
+    { id:'geo-airports', label:'Airports', view:collectionView('geo-airports') },
   ]},
   { id:'ancillaries', label:'Ancillaries', icon:'briefcase', children:[
-    { id:'an-products', label:'Products', view:S('Ancillary Products','Baggage, seats, insurance, transfers.') },
-    { id:'an-displays', label:'Displays', view:S('Ancillary Displays','How ancillaries appear at checkout.') },
+    { id:'an-products', label:'Products', view:collectionView('ancillary-products') },
+    { id:'an-displays', label:'Displays', view:collectionView('ancillary-displays') },
   ]},
   { id:'configurations', label:'Configurations', icon:'sliders', children:[
-    { id:'cf-static', label:'Static Pages', view:S('Static Pages','CMS pages (about, terms, privacy…).') },
+    { id:'cf-static', label:'Static Pages', view:collectionView('static-pages') },
     { id:'cf-gds', label:'GDS', view:viewGds },
   ]},
   { id:'staticblocks', label:'B2B Static Blocks', icon:'layout', children:[
-    { id:'sb-sliders', label:'Sliders', view:S('Sliders','Home/page hero sliders.') },
-    { id:'sb-pillars', label:'Main Pillars', view:S('Main Pillars','Featured content pillars.') },
-    { id:'sb-offers', label:'Offers', view:S('Offers','Promotional offer blocks.') },
-    { id:'sb-testi', label:'Customer Testimonials', view:S('Customer Testimonials','Reviews shown on the site.') },
-    { id:'sb-partners', label:'Partner Logos', view:S('Partner Logos','Airline/partner logo strip.') },
-    { id:'sb-regp', label:'Register Pillars', view:S('Register Pillars','Benefits shown on sign-up.') },
-    { id:'sb-banners', label:'Product Banners', view:S('Product Banners','Banners across product pages.') },
+    { id:'sb-sliders', label:'Sliders', view:collectionView('block-sliders') },
+    { id:'sb-pillars', label:'Main Pillars', view:collectionView('block-pillars') },
+    { id:'sb-offers', label:'Offers', view:collectionView('block-offers') },
+    { id:'sb-testi', label:'Customer Testimonials', view:collectionView('block-testimonials') },
+    { id:'sb-partners', label:'Partner Logos', view:collectionView('block-partners') },
+    { id:'sb-regp', label:'Register Pillars', view:collectionView('block-register') },
+    { id:'sb-banners', label:'Product Banners', view:collectionView('block-banners') },
   ]},
-  { id:'systemsettings', label:'System Settings', icon:'cog', view:S('System Settings','Environment, integration keys and operational defaults.') },
-  { id:'supplierslogs', label:'Suppliers Logs', icon:'list', view:S('Suppliers Logs','Raw request/response logs from supplier APIs.') },
-  { id:'productevents', label:'Product Events', icon:'activity', view:S('Product Events','Inventory and price-change events from suppliers.') },
+  { id:'systemsettings', label:'System Settings', icon:'cog', view:viewSystemSettings },
+  { id:'supplierslogs', label:'Suppliers Logs', icon:'list', view:logView('supplier-logs','Suppliers logs','Raw request/response logs from supplier APIs.') },
+  { id:'productevents', label:'Product Events', icon:'activity', view:logView('product-events','Product events','Inventory and price-change events from suppliers.') },
   { id:'translations', label:'Translations', icon:'languages', children:[
-    { id:'tr-manage', label:'Translation Management', view:S('Translation Management','Manage EN/AR copy across the platform.') },
+    { id:'tr-manage', label:'Translation Management', view:collectionView('translations') },
   ]},
   { id:'systemlogs', label:'System Logs', icon:'terminal', children:[
-    { id:'sl-activity', label:'Activity Log', view:S('Activity Log','Audit trail of admin actions.') },
+    { id:'sl-activity', label:'Activity Log', view:logView('activity','Activity log','Audit trail of admin actions across the console.') },
   ]},
-  { id:'fire', label:'Fire Events', icon:'alert', view:S('Fire Events','Webhook / event-bus dispatch monitor.') },
+  { id:'fire', label:'Fire Events', icon:'alert', view:logView('fire-events','Fire events','Webhook / event-bus dispatch monitor.') },
   { id:'logout', label:'Logout', icon:'logout', danger:true, action:doLogout },
 ];
 
@@ -768,6 +863,19 @@ document.addEventListener('click', async e => {
   // Navigate via a button (e.g. "+ Create invoice")
   const go = e.target.closest('[data-goto]');
   if (go){ location.hash = go.dataset.goto; return; }
+  // Generic content collections: create / delete / toggle
+  const cc = e.target.closest('[data-content-create]');
+  if (cc){ const coll = cc.dataset.contentCreate; const form = document.querySelector(`[data-cform="${coll}"]`);
+    const data = {}; form.querySelectorAll('[data-cfield]').forEach(i => { if (i.value !== '') data[i.dataset.cfield] = i.value; });
+    if (!Object.keys(data).length){ toast('Fill in at least one field'); return; }
+    const r = await post(`/api/admin/content/${coll}`, { data });
+    toast(r.ok ? 'Added' : (r.data.error || 'Could not add')); if (r.ok) route(); return; }
+  const cdl = e.target.closest('[data-content-del]');
+  if (cdl){ if (!confirm('Delete this item?')) return; const [coll, id] = cdl.dataset.contentDel.split(':');
+    const r = await del(`/api/admin/content/${coll}/${id}`); toast(r.ok ? 'Deleted' : 'Delete failed'); if (r.ok) route(); return; }
+  const ctg = e.target.closest('[data-content-toggle]');
+  if (ctg){ const [coll, id, active] = ctg.dataset.contentToggle.split(':');
+    const r = await patch(`/api/admin/content/${coll}/${id}`, { active: active === '1' }); toast(r.ok ? 'Updated' : 'Update failed'); if (r.ok) route(); return; }
   // Company Settings: save
   const ss = e.target.closest('[data-save-settings]');
   if (ss){ const obj = {};

@@ -17,7 +17,8 @@
     "smoke:invoices": "node test/invoices.smoke.mjs",
     "smoke:settings": "node test/settings.smoke.mjs",
     "smoke:notifications": "node test/notifications.smoke.mjs",
-    "test": "node test/smoke.mjs && node test/visas.smoke.mjs && node test/hotels.smoke.mjs && node test/flights.smoke.mjs && node test/tours.smoke.mjs && node test/admin.smoke.mjs && node test/pricing.smoke.mjs && node test/invoices.smoke.mjs && node test/settings.smoke.mjs && node test/notifications.smoke.mjs"
+    "smoke:content": "node test/content.smoke.mjs",
+    "test": "node test/smoke.mjs && node test/visas.smoke.mjs && node test/hotels.smoke.mjs && node test/flights.smoke.mjs && node test/tours.smoke.mjs && node test/admin.smoke.mjs && node test/pricing.smoke.mjs && node test/invoices.smoke.mjs && node test/settings.smoke.mjs && node test/notifications.smoke.mjs && node test/content.smoke.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
