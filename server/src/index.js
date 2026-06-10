@@ -17,6 +17,7 @@ import { adminRouter } from './admin.js';
 import { leadsRouter } from './leads.js';
 import { vouchersRouter } from './pricing.js';
 import { settingsRouter } from './settings.js';
+import { adminContentRouter, publicContentRouter } from './content.js';
 import { query } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -67,6 +68,10 @@ export function createApp() {
 
   // Public company/brand settings for the storefront.
   app.use('/api/settings', settingsRouter);
+
+  // CMS-style content collections: admin CRUD + public read.
+  app.use('/api/admin/content', adminContentRouter);
+  app.use('/api/content', publicContentRouter);
 
   // Serve the existing static front-end (defaults to the repo root) so the site
   // and the API share one origin.
