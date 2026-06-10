@@ -68,7 +68,7 @@ foreach ($p in $people) {
     }
     "visa" {
       $vt = (Invoke-RestMethod "$base/api/visa-types").visaTypes[0].code
-      Post "/api/visas" @{ visaTypeCode=$vt; travellerName=$p.name; passportNumber="A1234567" } $sess | Out-Null
+      Post "/api/visas" @{ visaTypeCode=$vt; applicantName=$p.name; nationality="United Arab Emirates"; passportNumber="A1234567" } $sess | Out-Null
       Write-Host "  $($p.name): visa request submitted"
     }
   }
