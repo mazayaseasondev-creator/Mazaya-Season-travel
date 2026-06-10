@@ -524,6 +524,29 @@ async function viewLookFeel(el){
     <button class="btn primary" data-save-settings>Save look &amp; feel</button>`);
 }
 
+/* ------------------------- Notifications ------------------------- */
+async function viewNotifications(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/notifications');
+  const rows = (r.ok?r.data.notifications:[]).map(n=>[
+    `<span class="badge ${n.channel==='email'?'info':n.channel==='sms'?'ok':''}">${esc(n.channel)}</span>`,
+    esc(n.recipient||'—'), `${esc(n.subject)}<br><small>${esc((n.body||'').slice(0,80))}</small>`,
+    badge(n.status), esc(fmtDateTime(n.createdAt)),
+  ]);
+  const compose = `<div style="display:grid;grid-template-columns:160px 1fr;gap:12px;max-width:720px;padding:6px 0">
+      <label style="font-size:12px;font-weight:600">Channel<br>
+        <select id="nt-channel" style="margin-top:5px;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px"><option value="email">Email</option><option value="sms">SMS</option></select></label>
+      <label style="font-size:12px;font-weight:600">Recipient<br>
+        <input id="nt-to" placeholder="customer@example.com / 05XXXXXXXX" style="margin-top:5px;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px"></label>
+      <label style="font-size:12px;font-weight:600;grid-column:1/3">Subject<br>
+        <input id="nt-subject" placeholder="Your booking is confirmed" style="margin-top:5px;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px"></label>
+      <label style="font-size:12px;font-weight:600;grid-column:1/3">Message<br>
+        <textarea id="nt-body" rows="3" placeholder="Message body…" style="margin-top:5px;width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-family:inherit"></textarea></label>
+    </div><button class="btn primary" id="nt-send">Send notification</button>
+    <p class="muted-note">In dev, messages are logged (not delivered) until an SMS/email provider is connected — the same model as OTP.</p>`;
+  el.innerHTML = panel('Compose', compose) + panel('Notification log', table(['Channel','Recipient','Subject','Status','Sent'], rows, 'No notifications yet.'));
+}
+
 /* ============================ navigation ============================ */
 const S = scaffold; // alias
 const NAV = [
@@ -594,7 +617,7 @@ const NAV = [
     { id:'crm-faq', label:'FAQ', view:S('FAQ','Manage public help/FAQ content.') },
   ]},
   { id:'notifications', label:'Notifications', icon:'bell', children:[
-    { id:'nt-notifications', label:'Notifications', view:S('Notifications','Email/SMS templates and the outbound message log.') },
+    { id:'nt-notifications', label:'Notifications', view:viewNotifications },
   ]},
   { id:'reports', label:'Reports', icon:'chart', children:[
     { id:'rp-dashboard', label:'Dashboard', view:viewReports },
@@ -758,6 +781,12 @@ document.addEventListener('click', async e => {
     if (r.ok){ toast(`Invoice ${r.data.invoice.number} created`); location.hash = 'inv-all'; }
     else toast(r.data.error || 'Could not create invoice');
     return; }
+  // Notifications: send
+  if (e.target.id === 'nt-send'){
+    const body = { channel: ($('#nt-channel')||{}).value, recipient: ($('#nt-to')||{}).value,
+      subject: ($('#nt-subject')||{}).value, body: ($('#nt-body')||{}).value };
+    const r = await post('/api/admin/notifications', body);
+    toast(r.ok ? 'Notification sent' : (r.data.error || 'Could not send')); if (r.ok) route(); return; }
   // Pricing: test tool
   if (e.target.id === 'tt-run'){
     const city = ($('#tt-city')||{}).value || 'Dubai';

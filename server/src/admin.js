@@ -3,9 +3,24 @@ import { query } from './db.js';
 import { requireAuth, requireAdmin } from './auth.js';
 import { getMarkups, setMarkup, listVouchers, createVoucher, setVoucherActive } from './pricing.js';
 import { getSettings, setSettings } from './settings.js';
+import { listNotifications, createNotification } from './notifications.js';
 
 export const adminRouter = express.Router();
 adminRouter.use(requireAuth, requireAdmin);
+
+// ---- Notifications (outbound message log + compose) ----
+adminRouter.get('/notifications', async (req, res, next) => {
+  try { res.json({ notifications: await listNotifications(req.query.status) }); } catch (e) { next(e); }
+});
+adminRouter.post('/notifications', async (req, res, next) => {
+  try {
+    const { channel, recipient, subject, body } = req.body || {};
+    if (!recipient || !subject) return res.status(400).json({ error: 'recipient and subject are required' });
+    const n = await createNotification({ channel, recipient: String(recipient).trim(), subject: String(subject).trim(), body: body || '' });
+    if (!n) return res.status(500).json({ error: 'Could not send notification' });
+    res.status(201).json({ notification: { id: n.id, channel: n.channel, recipient: n.recipient, subject: n.subject, body: n.body, status: n.status, createdAt: n.created_at } });
+  } catch (e) { next(e); }
+});
 
 // ---- Company settings (Company info + Look & Feel) ----
 adminRouter.get('/settings', async (_req, res, next) => {
