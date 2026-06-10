@@ -473,13 +473,64 @@ async function viewTestTool(el){
     </div><div id="tt-result"></div>`);
 }
 
+/* ------------------------ Company Settings ------------------------ */
+function field(setting, label, value, type='text'){
+  return `<label style="font-size:12px;font-weight:600">${esc(label)}<br>
+    <input data-setting="${setting}" type="${type}" value="${esc(value||'')}"
+      style="margin-top:5px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px"></label>`;
+}
+async function viewCompanyInfo(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/settings');
+  const s = r.ok ? r.data.settings : {};
+  el.innerHTML = panel('Company info', `
+    <p class="muted-note">Legal and contact details for your agency. Used on invoices and the storefront.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:760px;padding:6px 0">
+      ${field('company.legalName','Legal name', s['company.legalName'])}
+      ${field('company.tradingName','Trading name', s['company.tradingName'])}
+      ${field('company.licenseNo','Trade licence no.', s['company.licenseNo'])}
+      ${field('company.trn','Tax / TRN no.', s['company.trn'])}
+      ${field('company.email','Email', s['company.email'])}
+      ${field('company.phone','Phone', s['company.phone'])}
+      ${field('company.website','Website', s['company.website'])}
+      ${field('company.currency','Base currency', s['company.currency'])}
+      ${field('company.address','Address', s['company.address'])}
+      ${field('company.city','City', s['company.city'])}
+      ${field('company.country','Country', s['company.country'])}
+    </div>
+    <button class="btn primary" data-save-settings>Save company info</button>`);
+}
+async function viewLookFeel(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/settings');
+  const s = r.ok ? r.data.settings : {};
+  const primary = s['brand.primaryColor'] || '#1B4087';
+  const accent = s['brand.accentColor'] || '#FFC831';
+  el.innerHTML = panel('Look & feel', `
+    <p class="muted-note">Brand identity used across the storefront and documents.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:760px;padding:6px 0">
+      ${field('brand.primaryColor','Primary colour', primary, 'color')}
+      ${field('brand.accentColor','Accent colour', accent, 'color')}
+      ${field('brand.logoUrl','Logo URL', s['brand.logoUrl'])}
+      ${field('brand.tagline','Tagline', s['brand.tagline'])}
+    </div>
+    <div style="margin:10px 0 16px;border:1px solid var(--line);border-radius:12px;overflow:hidden;max-width:760px">
+      <div style="background:${esc(primary)};color:#fff;padding:18px 20px;display:flex;align-items:center;justify-content:space-between">
+        <b>${esc(s['company.tradingName']||'Mazaya')}</b>
+        <span style="background:${esc(accent)};color:#3a2a00;padding:6px 12px;border-radius:999px;font-weight:800;font-size:12px">Book now</span>
+      </div>
+      <div style="padding:14px 20px;color:var(--muted);font-size:13px">${esc(s['brand.tagline']||'')}</div>
+    </div>
+    <button class="btn primary" data-save-settings>Save look &amp; feel</button>`);
+}
+
 /* ============================ navigation ============================ */
 const S = scaffold; // alias
 const NAV = [
   { id:'dashboard', label:'Dashboard', icon:'grid', view:viewDashboard },
   { id:'company', label:'Company Settings', icon:'building', children:[
-    { id:'company-look', label:'Look and feel', view:S('Look & Feel','Theme, logo and colours for your storefront and agent portal.') },
-    { id:'company-info', label:'Company info', view:S('Company Info','Legal name, registration, addresses and contact details.') },
+    { id:'company-look', label:'Look and feel', view:viewLookFeel },
+    { id:'company-info', label:'Company info', view:viewCompanyInfo },
   ]},
   { id:'orders', label:'Orders', icon:'clipboard', children:[
     { id:'orders-all', label:'All Orders', view:viewAllOrders },
@@ -694,6 +745,12 @@ document.addEventListener('click', async e => {
   // Navigate via a button (e.g. "+ Create invoice")
   const go = e.target.closest('[data-goto]');
   if (go){ location.hash = go.dataset.goto; return; }
+  // Company Settings: save
+  const ss = e.target.closest('[data-save-settings]');
+  if (ss){ const obj = {};
+    document.querySelectorAll('[data-setting]').forEach(inp => { obj[inp.dataset.setting] = inp.value; });
+    const r = await put('/api/admin/settings', { settings: obj });
+    toast(r.ok ? 'Settings saved' : (r.data.error || 'Could not save')); if (r.ok) route(); return; }
   // Invoices: create
   if (e.target.id === 'ci-create'){
     const body = { contact: ($('#ci-contact')||{}).value, description: ($('#ci-desc')||{}).value, amount: ($('#ci-amount')||{}).value };

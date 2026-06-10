@@ -16,6 +16,7 @@ import { paymentsRouter } from './payments.js';
 import { adminRouter } from './admin.js';
 import { leadsRouter } from './leads.js';
 import { vouchersRouter } from './pricing.js';
+import { settingsRouter } from './settings.js';
 import { query } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,9 @@ export function createApp() {
 
   // Pricing: voucher validation for signed-in customers.
   app.use('/api/vouchers', vouchersRouter);
+
+  // Public company/brand settings for the storefront.
+  app.use('/api/settings', settingsRouter);
 
   // Serve the existing static front-end (defaults to the repo root) so the site
   // and the API share one origin.

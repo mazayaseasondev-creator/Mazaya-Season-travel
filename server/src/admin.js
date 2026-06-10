@@ -2,9 +2,18 @@ import express from 'express';
 import { query } from './db.js';
 import { requireAuth, requireAdmin } from './auth.js';
 import { getMarkups, setMarkup, listVouchers, createVoucher, setVoucherActive } from './pricing.js';
+import { getSettings, setSettings } from './settings.js';
 
 export const adminRouter = express.Router();
 adminRouter.use(requireAuth, requireAdmin);
+
+// ---- Company settings (Company info + Look & Feel) ----
+adminRouter.get('/settings', async (_req, res, next) => {
+  try { res.json({ settings: await getSettings() }); } catch (e) { next(e); }
+});
+adminRouter.put('/settings', async (req, res, next) => {
+  try { res.json({ settings: await setSettings(req.body && req.body.settings) }); } catch (e) { next(e); }
+});
 
 // ---- Pricing: markup rules ----
 adminRouter.get('/pricing', async (_req, res, next) => {
