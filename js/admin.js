@@ -216,14 +216,33 @@ async function viewRefunds(el){
 }
 async function viewInvoices(el){
   el.innerHTML = '<div class="empty">Loading…</div>';
-  const r = await getJSON('/api/admin/payments?status=paid');
-  const rows = (r.ok?r.data.payments:[]).map((p,i)=>[
-    `<b>INV-${String(1000+i)}</b><br><small>${esc(p.ref)}</small>`, contact(p.customer),
-    `<span class="pill ${cap(p.kind)}">${esc(cap(p.kind))}</span>`, esc(money(p.amount,p.currency)),
-    esc(fmtDate(p.createdAt)), `<span class="badge ok">Paid</span>`,
+  const [man, pay] = await Promise.all([getJSON('/api/admin/invoices'), getJSON('/api/admin/payments?status=paid')]);
+  const list = [];
+  (man.ok?man.data.invoices:[]).forEach(i=>list.push({ number:i.number, who:i.contact, for:i.description,
+    amount:i.amount, currency:i.currency, date:i.createdAt, status:i.status, source:'Manual' }));
+  (pay.ok?pay.data.payments:[]).forEach((p,i)=>list.push({ number:'INV-'+(1000+i), who:(p.customer&&(p.customer.email||p.customer.mobile))||'',
+    for:cap(p.kind)+' booking', amount:p.amount, currency:p.currency, date:p.createdAt, status:'paid', source:'Sale' }));
+  list.sort((a,b)=> new Date(b.date||0) - new Date(a.date||0));
+  const rows = list.map(i=>[
+    `<b>${esc(i.number)}</b>`, esc(i.who), esc(i.for), esc(money(i.amount,i.currency)),
+    esc(fmtDate(i.date)), badge(i.status), `<span class="pill">${esc(i.source)}</span>`,
   ]);
-  el.innerHTML = `<p class="muted-note">Invoices are generated from captured payments.</p>`
-    + panel('All invoices', table(['Invoice','Customer','For','Amount','Issued','Status'], rows, 'No invoices yet.'));
+  el.innerHTML = `<div class="section-head"><p class="muted-note" style="margin:0">Manual invoices plus sales invoices from captured payments.</p>`
+    + `<button class="btn primary sm" data-goto="inv-create">+ Create invoice</button></div>`
+    + panel('All invoices', table(['Invoice','Customer','For','Amount','Issued','Status','Source'], rows, 'No invoices yet.'));
+}
+function viewCreateInvoice(el){
+  el.innerHTML = panel('Create invoice', `
+    <p class="muted-note">Raise a manual invoice for a customer or agency. It appears in All Invoices.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:640px;padding:6px 0">
+      <label style="font-size:12px;font-weight:600">Customer email / mobile<br>
+        <input id="ci-contact" placeholder="customer@example.com" style="margin-top:5px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px"></label>
+      <label style="font-size:12px;font-weight:600">Amount (AED)<br>
+        <input id="ci-amount" type="number" min="1" step="0.01" placeholder="1500" style="margin-top:5px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px"></label>
+      <label style="font-size:12px;font-weight:600;grid-column:1/3">Description<br>
+        <input id="ci-desc" placeholder="Tailor-made package — 4 nights Dubai" style="margin-top:5px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px"></label>
+    </div>
+    <button class="btn primary" id="ci-create">Create invoice</button>`);
 }
 async function viewCustomers(el){
   el.innerHTML = '<div class="empty">Loading…</div>';
@@ -241,26 +260,61 @@ async function viewLeads(el){
   ]);
   el.innerHTML = panel('Messages & leads', table(['ID','Name','Contact','Message','Received','Status'], rows, 'No messages yet.'));
 }
+const card2 = (label, value) => `<div class="stat"><div class="top"><span class="label">${label}</span></div><div class="value">${value}</div></div>`;
+function barChart(rows){ // rows: [label, value, displayValue]
+  const max = Math.max(1, ...rows.map(r=>r[1]));
+  return rows.map(([label,n,disp])=>`<div style="margin:11px 0">
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600"><span>${esc(label)}</span><span>${esc(disp!=null?disp:n)}</span></div>
+    <div style="background:#eef3fb;border-radius:8px;height:12px;margin-top:5px;overflow:hidden">
+      <div style="height:100%;width:${Math.round(n/max*100)}%;background:var(--blue)"></div></div></div>`).join('');
+}
 async function viewReports(el){
   el.innerHTML = '<div class="empty">Loading…</div>';
-  const r = await getJSON('/api/admin/stats');
-  if (!r.ok){ el.innerHTML = '<div class="empty">Could not load reports.</div>'; return; }
-  const d = r.data;
-  const counts = m => Object.values(m||{}).reduce((a,b)=>a+b,0);
-  const data = [['Hotels',counts(d.hotelBookings),'Hotel'],['Flights',counts(d.flightBookings),'Flight'],['Tours',counts(d.tourBookings),'Tour'],['Visas',counts(d.visaRequests),'Visa']];
-  const max = Math.max(1, ...data.map(x=>x[1]));
-  const bars = data.map(([label,n,cls])=>`<div style="margin:10px 0">
-      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600"><span>${label}</span><span>${n}</span></div>
-      <div style="background:#eef3fb;border-radius:8px;height:12px;margin-top:5px;overflow:hidden">
-        <div style="height:100%;width:${Math.round(n/max*100)}%;background:var(--blue)"></div></div></div>`).join('');
-  const card = (label, value) => `<div class="stat"><div class="top"><span class="label">${label}</span></div><div class="value">${value}</div></div>`;
+  const [s, payR] = await Promise.all([getJSON('/api/admin/stats'), getJSON('/api/admin/payments')]);
+  if (!s.ok){ el.innerHTML = '<div class="empty">Could not load reports.</div>'; return; }
+  const d = s.data;
+  const pays = payR.ok ? payR.data.payments : [];
+  const paid = pays.filter(p=>p.status==='paid');
+  // revenue by month
+  const byMonth = {};
+  paid.forEach(p=>{ const m = (p.createdAt||'').slice(0,7); byMonth[m]=(byMonth[m]||0)+Number(p.amount||0); });
+  const months = Object.keys(byMonth).sort();
+  const monthRows = months.map(m=>[m, byMonth[m], money(byMonth[m],'AED')]);
+  // revenue by product
+  const byKind = {};
+  paid.forEach(p=>{ byKind[p.kind]=(byKind[p.kind]||0)+Number(p.amount||0); });
+  const prodRows = Object.entries(byKind).map(([k,v])=>[cap(k), v, money(v,'AED')]);
+  // top customers
+  const byCust = {};
+  paid.forEach(p=>{ const who=(p.customer&&(p.customer.email||p.customer.mobile))||'—'; byCust[who]=(byCust[who]||0)+Number(p.amount||0); });
+  const top = Object.entries(byCust).sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .map(([who,v])=>[esc(who), esc(money(v,'AED'))]);
   el.innerHTML = `<div class="stat-grid">
-      ${card('Gross revenue', esc(money(d.revenue,d.currency)))}
-      ${card('Refunded', esc(money(d.refunded,d.currency)))}
-      ${card('Net revenue', esc(money((d.revenue||0)-(d.refunded||0),d.currency)))}
-      ${card('Total bookings', d.bookingsTotal)}
-    </div><div class="grid-2">${panel('Bookings by product', bars)}${panel('Conversion', `
-      <p class="muted-note">Open leads: <b>${d.openLeads}</b> · Customers: <b>${d.customers}</b> · Visa queue: <b>${d.visaReviewQueue}</b></p>`)}</div>`;
+      ${card2('Gross revenue', esc(money(d.revenue,d.currency)))}
+      ${card2('Refunded', esc(money(d.refunded,d.currency)))}
+      ${card2('Net revenue', esc(money((d.revenue||0)-(d.refunded||0),d.currency)))}
+      ${card2('Paid orders', paid.length)}
+    </div>
+    <div class="grid-2">
+      ${panel('Revenue by month', monthRows.length?barChart(monthRows):'<div class="empty">No revenue yet.</div>')}
+      ${panel('Revenue by product', prodRows.length?barChart(prodRows):'<div class="empty">No revenue yet.</div>')}
+    </div>
+    ${panel('Top customers', table(['Customer','Spend'], top, 'No paid orders yet.'))}`;
+}
+async function viewSuppliers(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/payments');
+  const pays = (r.ok?r.data.payments:[]).filter(p=>p.status==='paid');
+  const SUP = { hotel:'Hotelbeds', flight:'Amadeus', tour:'Viator', visa:'In-house' };
+  const agg = {};
+  pays.forEach(p=>{ const s=SUP[p.kind]||'Other'; (agg[s]=agg[s]||{n:0,rev:0}); agg[s].n++; agg[s].rev+=Number(p.amount||0); });
+  const rows = Object.entries(agg).map(([s,v])=>[esc(s), v.n, esc(money(v.rev,'AED'))]);
+  el.innerHTML = `<p class="muted-note">Bookings and revenue settled with each supplier.</p>`
+    + panel('Suppliers report', table(['Supplier','Paid bookings','Revenue'], rows, 'No supplier activity yet.'));
+}
+function emptyReport(title, desc){
+  return el => { el.innerHTML = `<p class="muted-note">${esc(desc)}</p>`
+    + panel(title, `<div class="empty">No ${esc(title.toLowerCase())} data yet — this report populates once B2B agencies and agents are trading.</div>`); };
 }
 async function viewUsers(el){
   el.innerHTML = '<div class="empty">Loading…</div>';
@@ -471,7 +525,7 @@ const NAV = [
   ]},
   { id:'invoices', label:'Invoices', icon:'file', children:[
     { id:'inv-all', label:'All Invoices', view:viewInvoices },
-    { id:'inv-create', label:'Create Invoice', view:S('Create Invoice','Raise a manual invoice for a customer or agency.') },
+    { id:'inv-create', label:'Create Invoice', view:viewCreateInvoice },
   ]},
   { id:'accounting', label:'Accounting', icon:'book', children:[
     { id:'ac-accounts', label:'Accounts', view:viewAccounts },
@@ -492,13 +546,13 @@ const NAV = [
     { id:'nt-notifications', label:'Notifications', view:S('Notifications','Email/SMS templates and the outbound message log.') },
   ]},
   { id:'reports', label:'Reports', icon:'chart', children:[
+    { id:'rp-dashboard', label:'Dashboard', view:viewReports },
     { id:'rp-flights', label:'Flights', view:viewFlights },
     { id:'rp-hotels', label:'Hotels', view:viewHotels },
-    { id:'rp-dashboard', label:'Dashboard', view:viewReports },
-    { id:'rp-suppliers', label:'Suppliers', view:S('Supplier Report','Volume and spend by supplier.') },
-    { id:'rp-agents', label:'Agents', view:S('Agent Report','Sales by internal agent.') },
-    { id:'rp-agencies', label:'Agencies', view:S('Agency Report','Sales by B2B agency.') },
-    { id:'rp-supb2b', label:'Supplier B2B Agency', view:S('Supplier × B2B Agency','Cross report of supplier vs agency.') },
+    { id:'rp-suppliers', label:'Suppliers', view:viewSuppliers },
+    { id:'rp-agents', label:'Agents', view:emptyReport('Agents', 'Sales by internal agent.') },
+    { id:'rp-agencies', label:'Agencies', view:emptyReport('Agencies', 'Sales by B2B agency.') },
+    { id:'rp-supb2b', label:'Supplier B2B Agency', view:emptyReport('Supplier B2B Agency', 'Cross report of supplier versus B2B agency.') },
     { id:'rp-hold', label:'Hold Bookings', view:viewHoldOrders },
   ]},
   { id:'users', label:'Users & Roles', icon:'shield', children:[
@@ -637,6 +691,16 @@ document.addEventListener('click', async e => {
   const vt = e.target.closest('[data-voucher-toggle]');
   if (vt){ const r = await patch(`/api/admin/vouchers/${vt.dataset.voucherToggle}`, { active: vt.dataset.active === '1' });
     toast(r.ok ? 'Voucher updated' : (r.data.error || 'Update failed')); if (r.ok) route(); return; }
+  // Navigate via a button (e.g. "+ Create invoice")
+  const go = e.target.closest('[data-goto]');
+  if (go){ location.hash = go.dataset.goto; return; }
+  // Invoices: create
+  if (e.target.id === 'ci-create'){
+    const body = { contact: ($('#ci-contact')||{}).value, description: ($('#ci-desc')||{}).value, amount: ($('#ci-amount')||{}).value };
+    const r = await post('/api/admin/invoices', body);
+    if (r.ok){ toast(`Invoice ${r.data.invoice.number} created`); location.hash = 'inv-all'; }
+    else toast(r.data.error || 'Could not create invoice');
+    return; }
   // Pricing: test tool
   if (e.target.id === 'tt-run'){
     const city = ($('#tt-city')||{}).value || 'Dubai';

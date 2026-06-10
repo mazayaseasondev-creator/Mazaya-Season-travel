@@ -31,6 +31,36 @@ adminRouter.patch('/vouchers/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---- Manually-raised invoices ----
+function publicInvoice(i) {
+  return {
+    id: i.id, number: 'INV-' + (2000 + i.id), contact: i.contact, description: i.description,
+    amount: i.amount_cents / 100, currency: i.currency, status: i.status, createdAt: i.created_at,
+  };
+}
+adminRouter.get('/invoices', async (_req, res, next) => {
+  try {
+    const r = await query('select * from invoices order by created_at desc limit 200');
+    res.json({ invoices: r.rows.map(publicInvoice) });
+  } catch (e) { next(e); }
+});
+adminRouter.post('/invoices', async (req, res, next) => {
+  try {
+    const { contact, description, amount, currency } = req.body || {};
+    if (!contact || !description || !(Number(amount) > 0)) {
+      return res.status(400).json({ error: 'contact, description and a positive amount are required' });
+    }
+    const cents = Math.round(Number(amount) * 100);
+    const u = await query('select id from users where email = $1 or mobile = $1', [String(contact).trim()]);
+    const r = await query(
+      `insert into invoices (user_id, contact, description, amount_cents, currency)
+       values ($1,$2,$3,$4,$5) returning *`,
+      [u.rows[0] ? u.rows[0].id : null, String(contact).trim(), String(description).trim(), cents, currency || 'AED'],
+    );
+    res.status(201).json({ invoice: publicInvoice(r.rows[0]) });
+  } catch (e) { next(e); }
+});
+
 // Statuses an admin is allowed to move a request into.
 const ADMIN_SETTABLE = new Set(['in_review', 'approved', 'rejected']);
 
