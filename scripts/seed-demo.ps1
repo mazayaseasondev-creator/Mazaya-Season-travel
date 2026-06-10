@@ -47,21 +47,21 @@ foreach ($p in $people) {
   switch ($p.product) {
     "hotel" {
       $s   = Invoke-RestMethod "$base/api/hotels/search?city=Dubai&checkIn=2026-08-01&checkOut=2026-08-04&guests=2"
-      $bk  = Post "/api/hotels/bookings" @{ rateKey=$s.hotels[0].rooms[0].rateKey; leadGuest=@{ name=$p.name; email=$p.email } } $sess
+      $bk  = Post "/api/hotels/bookings" @{ rateKey=$s.hotels[0].rooms[0].rateKey; leadGuest=$p.name; guests=2 } $sess
       $co  = Post "/api/payments/hotel/$($bk.booking.id)/checkout" @{} $sess
       Post "/api/payments/$(RefOf $co)/confirm" @{} $sess | Out-Null
       Write-Host "  $($p.name): hotel booked + paid"
     }
     "flight" {
       $s   = Invoke-RestMethod "$base/api/flights/search?origin=DXB&destination=LHR&departDate=2026-08-10&adults=1"
-      $bk  = Post "/api/flights/bookings" @{ offerKey=$s.offers[0].offerKey; leadPassenger=@{ name=$p.name; email=$p.email } } $sess
+      $bk  = Post "/api/flights/bookings" @{ offerKey=$s.offers[0].offerKey; leadPassenger=$p.name } $sess
       $co  = Post "/api/payments/flight/$($bk.booking.id)/checkout" @{} $sess
       Post "/api/payments/$(RefOf $co)/confirm" @{} $sess | Out-Null
       Write-Host "  $($p.name): flight booked + ticketed"
     }
     "tour" {
       $s   = Invoke-RestMethod "$base/api/tours/search?city=Dubai&date=2026-08-10&travellers=2"
-      $bk  = Post "/api/tours/bookings" @{ tourKey=$s.tours[0].tourKey; leadTraveller=@{ name=$p.name; email=$p.email }; travellers=2 } $sess
+      $bk  = Post "/api/tours/bookings" @{ tourKey=$s.tours[0].tourKey; leadTraveller=$p.name; travellers=2 } $sess
       $co  = Post "/api/payments/tour/$($bk.booking.id)/checkout" @{} $sess
       Post "/api/payments/$(RefOf $co)/confirm" @{} $sess | Out-Null
       Write-Host "  $($p.name): tour booked + paid"

@@ -37,8 +37,9 @@ export function decodeOffer(offerKey) {
 function addHours(date, h) { return new Date(date.getTime() + h * 3600 * 1000); }
 function pad(n) { return String(n).padStart(2, '0'); }
 
-export async function search({ origin, destination, departDate, adults }) {
+export async function search({ origin, destination, departDate, adults, markupPercent = 0 }) {
   const o = normCode(origin), d = normCode(destination);
+  const markup = 1 + (Number(markupPercent) || 0) / 100;
   if (!o || !d || !/^\d{4}-\d{2}-\d{2}$/.test(String(departDate || ''))) {
     throw Object.assign(new Error('Provide origin, destination and a valid departDate (YYYY-MM-DD)'), { status: 400 });
   }
@@ -54,7 +55,7 @@ export async function search({ origin, destination, departDate, adults }) {
     const departHour = 6 + (seedOf(o + d + al.code) % 14); // 06:00–19:00
     const departAt = new Date(`${departDate}T${pad(departHour)}:00:00Z`);
     const arriveAt = addHours(departAt, durationH);
-    const perPax = Math.round(baseFare * al.mult);
+    const perPax = Math.round(baseFare * al.mult * markup);
     const offer = {
       o, d, ai: al.code, an: al.name,
       fn: `${al.code}${100 + (routeSeed % 800) + i}`,

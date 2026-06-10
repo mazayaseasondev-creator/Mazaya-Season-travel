@@ -2,6 +2,7 @@ import express from 'express';
 import { query } from './db.js';
 import { requireAuth } from './auth.js';
 import { flightSupplier } from './suppliers/flights/index.js';
+import { getMarkup } from './pricing.js';
 
 export const flightsRouter = express.Router();
 
@@ -72,7 +73,8 @@ flightsRouter.get('/search', async (req, res, next) => {
   try {
     const { origin, destination, departDate } = req.query;
     const adults = parseInt(req.query.adults || '1', 10);
-    const results = await flightSupplier.search({ origin, destination, departDate, adults });
+    const markupPercent = await getMarkup('flight');
+    const results = await flightSupplier.search({ origin, destination, departDate, adults, markupPercent });
     res.json(results);
   } catch (e) { next(e); }
 });

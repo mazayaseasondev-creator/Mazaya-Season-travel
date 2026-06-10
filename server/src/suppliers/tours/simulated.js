@@ -66,10 +66,11 @@ export function decodeKey(tourKey) {
   catch { return null; }
 }
 
-export async function search({ city, date, travellers }) {
+export async function search({ city, date, travellers, markupPercent = 0 }) {
   if (!city || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
     throw Object.assign(new Error('Provide a city and a valid date (YYYY-MM-DD)'), { status: 400 });
   }
+  const markup = 1 + (Number(markupPercent) || 0) / 100;
   const pax = Math.max(1, parseInt(travellers || '1', 10));
   const key = normCity(city);
   const tours = CATALOGUE[key] || generatedTours(key);
@@ -79,9 +80,10 @@ export async function search({ city, date, travellers }) {
     city: cityLabel, date, travellers: pax,
     tours: tours.map((t, ti) => {
       // The price deltas are signed into the key so they can be trusted later.
+      const base = Math.round(t.base * markup);
       const signed = {
         id: `${key}-${ti}`, n: t.name, c: cityLabel, dt: date,
-        b: t.base, cur: CURRENCY, du: t.durationHours,
+        b: base, cur: CURRENCY, du: t.durationHours,
         tr: TRANSFERS.map((x) => ({ code: x.code, d: x.delta })),
         gu: GUIDES.map((x) => ({ code: x.code, d: x.delta })),
       };
@@ -92,7 +94,7 @@ export async function search({ city, date, travellers }) {
         city: cityLabel,
         date,
         durationHours: t.durationHours,
-        basePrice: t.base / 100,
+        basePrice: base / 100,
         currency: CURRENCY,
         transferOptions: TRANSFERS.map((x) => ({ code: x.code, name: x.name, priceDelta: x.delta / 100 })),
         guideOptions: GUIDES.map((x) => ({ code: x.code, name: x.name, priceDelta: x.delta / 100 })),

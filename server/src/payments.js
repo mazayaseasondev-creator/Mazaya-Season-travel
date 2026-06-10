@@ -7,6 +7,7 @@ import { loadVisaRequest, voidVisaRequest } from './visas.js';
 import { loadHotelBooking, confirmHotelBooking, voidHotelBooking } from './hotels.js';
 import { loadFlightBooking, confirmFlightBooking, voidFlightBooking } from './flights.js';
 import { loadTourBooking, confirmTourBooking, voidTourBooking } from './tours.js';
+import { createNotification } from './notifications.js';
 
 export const paymentsRouter = express.Router();
 paymentsRouter.use(requireAuth);
@@ -200,6 +201,11 @@ async function fulfillPayment(payment) {
   if (payment.tour_booking_id) {
     await confirmTourBooking(payment.tour_booking_id);
   }
+  const amount = `${payment.currency} ${(payment.amount_cents / 100).toLocaleString()}`;
+  await createNotification({
+    userId: payment.user_id, subject: 'Payment received',
+    body: `We received your payment of ${amount}. Your booking is confirmed — thank you for choosing Mazaya.`,
+  });
 }
 
 // Reverse the purchased item when its payment is refunded.
@@ -208,4 +214,9 @@ async function reversePayment(payment) {
   if (payment.hotel_booking_id) await voidHotelBooking(payment.hotel_booking_id);
   if (payment.flight_booking_id) await voidFlightBooking(payment.flight_booking_id);
   if (payment.tour_booking_id) await voidTourBooking(payment.tour_booking_id);
+  const amount = `${payment.currency} ${(payment.amount_cents / 100).toLocaleString()}`;
+  await createNotification({
+    userId: payment.user_id, subject: 'Refund processed',
+    body: `Your payment of ${amount} has been refunded and the booking cancelled.`,
+  });
 }

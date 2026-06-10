@@ -1,9 +1,89 @@
 import express from 'express';
 import { query } from './db.js';
 import { requireAuth, requireAdmin } from './auth.js';
+import { getMarkups, setMarkup, listVouchers, createVoucher, setVoucherActive } from './pricing.js';
+import { getSettings, setSettings } from './settings.js';
+import { listNotifications, createNotification } from './notifications.js';
 
 export const adminRouter = express.Router();
 adminRouter.use(requireAuth, requireAdmin);
+
+// ---- Notifications (outbound message log + compose) ----
+adminRouter.get('/notifications', async (req, res, next) => {
+  try { res.json({ notifications: await listNotifications(req.query.status) }); } catch (e) { next(e); }
+});
+adminRouter.post('/notifications', async (req, res, next) => {
+  try {
+    const { channel, recipient, subject, body } = req.body || {};
+    if (!recipient || !subject) return res.status(400).json({ error: 'recipient and subject are required' });
+    const n = await createNotification({ channel, recipient: String(recipient).trim(), subject: String(subject).trim(), body: body || '' });
+    if (!n) return res.status(500).json({ error: 'Could not send notification' });
+    res.status(201).json({ notification: { id: n.id, channel: n.channel, recipient: n.recipient, subject: n.subject, body: n.body, status: n.status, createdAt: n.created_at } });
+  } catch (e) { next(e); }
+});
+
+// ---- Company settings (Company info + Look & Feel) ----
+adminRouter.get('/settings', async (_req, res, next) => {
+  try { res.json({ settings: await getSettings() }); } catch (e) { next(e); }
+});
+adminRouter.put('/settings', async (req, res, next) => {
+  try { res.json({ settings: await setSettings(req.body && req.body.settings) }); } catch (e) { next(e); }
+});
+
+// ---- Pricing: markup rules ----
+adminRouter.get('/pricing', async (_req, res, next) => {
+  try { res.json({ markups: await getMarkups() }); } catch (e) { next(e); }
+});
+adminRouter.put('/pricing', async (req, res, next) => {
+  try {
+    const { product, markupPercent } = req.body || {};
+    res.json(await setMarkup(product, markupPercent));
+  } catch (e) { next(e); }
+});
+
+// ---- Pricing: vouchers ----
+adminRouter.get('/vouchers', async (_req, res, next) => {
+  try { res.json({ vouchers: await listVouchers() }); } catch (e) { next(e); }
+});
+adminRouter.post('/vouchers', async (req, res, next) => {
+  try { res.status(201).json({ voucher: await createVoucher(req.body || {}) }); } catch (e) { next(e); }
+});
+adminRouter.patch('/vouchers/:id', async (req, res, next) => {
+  try {
+    if (!/^[0-9]+$/.test(req.params.id)) return res.status(404).json({ error: 'Voucher not found' });
+    res.json({ voucher: await setVoucherActive(req.params.id, req.body && req.body.active) });
+  } catch (e) { next(e); }
+});
+
+// ---- Manually-raised invoices ----
+function publicInvoice(i) {
+  return {
+    id: i.id, number: 'INV-' + (2000 + i.id), contact: i.contact, description: i.description,
+    amount: i.amount_cents / 100, currency: i.currency, status: i.status, createdAt: i.created_at,
+  };
+}
+adminRouter.get('/invoices', async (_req, res, next) => {
+  try {
+    const r = await query('select * from invoices order by created_at desc limit 200');
+    res.json({ invoices: r.rows.map(publicInvoice) });
+  } catch (e) { next(e); }
+});
+adminRouter.post('/invoices', async (req, res, next) => {
+  try {
+    const { contact, description, amount, currency } = req.body || {};
+    if (!contact || !description || !(Number(amount) > 0)) {
+      return res.status(400).json({ error: 'contact, description and a positive amount are required' });
+    }
+    const cents = Math.round(Number(amount) * 100);
+    const u = await query('select id from users where email = $1 or mobile = $1', [String(contact).trim()]);
+    const r = await query(
+      `insert into invoices (user_id, contact, description, amount_cents, currency)
+       values ($1,$2,$3,$4,$5) returning *`,
+      [u.rows[0] ? u.rows[0].id : null, String(contact).trim(), String(description).trim(), cents, currency || 'AED'],
+    );
+    res.status(201).json({ invoice: publicInvoice(r.rows[0]) });
+  } catch (e) { next(e); }
+});
 
 // Statuses an admin is allowed to move a request into.
 const ADMIN_SETTABLE = new Set(['in_review', 'approved', 'rejected']);
