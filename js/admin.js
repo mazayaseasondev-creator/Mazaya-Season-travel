@@ -293,6 +293,132 @@ function viewCurrencies(el){
     + panel('Currencies', table(['Code','Name','Role'], [['AED','UAE Dirham','<span class="badge ok">Base</span>']]));
 }
 
+/* ----------------------- Accounting (from the ledger) ----------------------- */
+// All accounting views derive from the captured/refunded payments ledger.
+async function ledger(){ const r = await getJSON('/api/admin/payments'); return r.ok ? r.data.payments : []; }
+const revAccount = k => ({hotel:'4000 · Hotel revenue',flight:'4100 · Flight revenue',tour:'4200 · Tour revenue',visa:'4300 · Visa revenue'}[k] || '4900 · Other revenue');
+
+async function viewReceipts(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const paid = (await ledger()).filter(p => p.status === 'paid');
+  const rows = paid.map((p,i)=>[`<b>RCT-${1000+i}</b>`, `<small>${esc(p.ref)}</small>`, contact(p.customer),
+    `<span class="pill ${cap(p.kind)}">${esc(cap(p.kind))}</span>`, esc(money(p.amount,p.currency)), esc(fmtDate(p.createdAt))]);
+  el.innerHTML = `<p class="muted-note">Every captured payment is a receipt.</p>`
+    + panel('Receipts', table(['Receipt','Payment ref','Customer','For','Amount','Date'], rows, 'No receipts yet.'));
+}
+async function viewCreditNotes(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const refunded = (await ledger()).filter(p => p.status === 'refunded');
+  const rows = refunded.map((p,i)=>[`<b>CN-${500+i}</b>`, `<small>${esc(p.ref)}</small>`, contact(p.customer),
+    `<span class="pill ${cap(p.kind)}">${esc(cap(p.kind))}</span>`, esc(money(p.amount,p.currency)), esc(fmtDate(p.updatedAt||p.createdAt))]);
+  el.innerHTML = `<p class="muted-note">Refunds are issued as credit notes.</p>`
+    + panel('Credit notes', table(['Credit note','Payment ref','Customer','For','Amount','Date'], rows, 'No credit notes yet.'));
+}
+async function viewJournal(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const all = await ledger();
+  const lines = [];
+  all.forEach(p=>{
+    if (p.status === 'paid'){
+      lines.push([esc(fmtDate(p.createdAt)), '1000 · Cash', esc(money(p.amount,p.currency)), '', `Receipt ${esc(p.ref)}`]);
+      lines.push([esc(fmtDate(p.createdAt)), revAccount(p.kind), '', esc(money(p.amount,p.currency)), `Receipt ${esc(p.ref)}`]);
+    } else if (p.status === 'refunded'){
+      lines.push([esc(fmtDate(p.updatedAt||p.createdAt)), revAccount(p.kind), esc(money(p.amount,p.currency)), '', `Refund ${esc(p.ref)}`]);
+      lines.push([esc(fmtDate(p.updatedAt||p.createdAt)), '1000 · Cash', '', esc(money(p.amount,p.currency)), `Refund ${esc(p.ref)}`]);
+    }
+  });
+  el.innerHTML = `<p class="muted-note">Double-entry journal generated from the payment ledger.</p>`
+    + panel('Journal', table(['Date','Account','Debit','Credit','Memo'], lines, 'No journal entries yet.'));
+}
+async function viewBalance(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const all = await ledger();
+  const paid = all.filter(p=>p.status==='paid'), ref = all.filter(p=>p.status==='refunded');
+  const sum = a => a.reduce((s,p)=>s+Number(p.amount||0),0);
+  const byKind = {};
+  paid.forEach(p=>{ byKind[p.kind]=(byKind[p.kind]||0)+Number(p.amount||0); });
+  const cash = sum(paid)-sum(ref);
+  const rows = Object.entries(byKind).map(([k,v])=>[revAccount(k), '', esc(money(v,'AED'))])
+    .concat([['1000 · Cash', esc(money(cash,'AED')), ''], ['4xxx · Refunds (contra)', esc(money(sum(ref),'AED')), '']]);
+  const card = (label, value) => `<div class="stat"><div class="top"><span class="label">${label}</span></div><div class="value">${value}</div></div>`;
+  el.innerHTML = `<div class="stat-grid">
+      ${card('Total receipts', esc(money(sum(paid),'AED')))}
+      ${card('Total refunds', esc(money(sum(ref),'AED')))}
+      ${card('Cash balance', esc(money(cash,'AED')))}
+      ${card('Entries', all.length)}
+    </div>` + panel('Balance report', table(['Account','Debit','Credit'], rows, 'No balances yet.'));
+}
+async function viewStatement(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const all = await ledger();
+  const byCust = {};
+  all.forEach(p=>{ const key = (p.customer && (p.customer.email||p.customer.mobile)) || ('#'+(p.customer&&p.customer.id));
+    (byCust[key] = byCust[key] || []).push(p); });
+  const blocks = Object.entries(byCust).map(([who, list])=>{
+    const rows = list.map(p=>[esc(fmtDate(p.createdAt)), `<small>${esc(p.ref)}</small>`,
+      p.status==='paid'?'Invoice':'Credit note', p.status==='paid'?esc(money(p.amount,p.currency)):'',
+      p.status==='refunded'?esc(money(p.amount,p.currency)):'', badge(p.status)]);
+    return panel(who, table(['Date','Ref','Type','Charge','Credit','Status'], rows));
+  });
+  el.innerHTML = (blocks.join('') || '<div class="empty">No account activity yet.</div>');
+}
+function viewAccounts(el){
+  const rows = [
+    ['1000','Cash / Bank','Asset'],['1100','Accounts receivable','Asset'],
+    ['2000','Supplier payables','Liability'],
+    ['4000','Hotel revenue','Revenue'],['4100','Flight revenue','Revenue'],
+    ['4200','Tour revenue','Revenue'],['4300','Visa revenue','Revenue'],
+  ].map(r=>[`<b>${r[0]}</b>`, esc(r[1]), `<span class="badge info">${r[2]}</span>`]);
+  el.innerHTML = `<p class="muted-note">Chart of accounts.</p>` + panel('Accounts', table(['Code','Account','Type'], rows));
+}
+
+/* ------------------------------ Pricing ------------------------------ */
+async function pricerView(el, product, label){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/pricing');
+  const current = r.ok ? (r.data.markups[product] || 0) : 0;
+  el.innerHTML = `<p class="muted-note">Set the markup added to every ${esc(label)} price at search time. Customers are quoted and charged the marked-up price.</p>`
+    + panel(`${label} markup`, `
+      <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;padding:6px 0">
+        <label style="font-weight:600;font-size:13px">Markup %
+          <div style="margin-top:6px"><input id="mk-input" type="number" min="0" max="500" step="0.5" value="${current}"
+            style="width:140px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;font-weight:700"></div>
+        </label>
+        <button class="btn primary" data-save-markup="${product}">Save markup</button>
+        <span id="mk-status" class="muted-note" style="margin:0"></span>
+      </div>
+      <p class="muted-note">Current: <b>${current}%</b></p>`);
+}
+const viewFlightPricer = el => pricerView(el, 'flight', 'Flight');
+const viewHotelsPricer = el => pricerView(el, 'hotel', 'Hotel');
+async function viewVouchers(el){
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await getJSON('/api/admin/vouchers');
+  const rows = (r.ok?r.data.vouchers:[]).map(v=>[
+    `<b>${esc(v.code)}</b>`, v.kind==='percent'?`${v.value}%`:esc(money(v.value,'AED')),
+    v.active?'<span class="badge ok">Active</span>':'<span class="badge bad">Inactive</span>',
+    v.expiresOn?esc(fmtDate(v.expiresOn)):'—', `${v.usedCount}${v.maxUses?(' / '+v.maxUses):''}`,
+    `<button class="btn sm" data-voucher-toggle="${v.id}" data-active="${v.active?'0':'1'}">${v.active?'Deactivate':'Activate'}</button>`,
+  ]);
+  const form = `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:6px 0">
+      <label style="font-size:12px;font-weight:600">Code<br><input id="v-code" placeholder="SUMMER10" style="margin-top:5px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;text-transform:uppercase"></label>
+      <label style="font-size:12px;font-weight:600">Type<br><select id="v-kind" style="margin-top:5px;padding:9px 11px;border:1px solid var(--line);border-radius:9px"><option value="percent">Percent %</option><option value="fixed">Fixed AED</option></select></label>
+      <label style="font-size:12px;font-weight:600">Value<br><input id="v-value" type="number" min="1" step="1" placeholder="10" style="margin-top:5px;width:110px;padding:9px 11px;border:1px solid var(--line);border-radius:9px"></label>
+      <button class="btn primary" id="v-create">Create voucher</button>
+    </div>`;
+  el.innerHTML = panel('New voucher', form) + panel('Vouchers', table(['Code','Discount','Status','Expires','Used','Action'], rows, 'No vouchers yet.'));
+}
+async function viewTestTool(el){
+  el.innerHTML = panel('Pricing test tool', `
+    <p class="muted-note">Run a live hotel search and see the quoted price (with any markup applied).</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:6px 0">
+      <label style="font-size:12px;font-weight:600">City<br><input id="tt-city" value="Dubai" style="margin-top:5px;padding:9px 11px;border:1px solid var(--line);border-radius:9px"></label>
+      <label style="font-size:12px;font-weight:600">Check-in<br><input id="tt-in" type="date" value="2026-09-01" style="margin-top:5px;padding:9px 11px;border:1px solid var(--line);border-radius:9px"></label>
+      <label style="font-size:12px;font-weight:600">Check-out<br><input id="tt-out" type="date" value="2026-09-03" style="margin-top:5px;padding:9px 11px;border:1px solid var(--line);border-radius:9px"></label>
+      <button class="btn primary" id="tt-run">Run search</button>
+    </div><div id="tt-result"></div>`);
+}
+
 /* ============================ navigation ============================ */
 const S = scaffold; // alias
 const NAV = [
@@ -338,23 +464,23 @@ const NAV = [
     { id:'pay-gw', label:'Payment Gateways', view:viewGateways },
   ]},
   { id:'pricing', label:'Pricing', icon:'tag', children:[
-    { id:'pr-vouchers', label:'Vouchers', view:S('Vouchers','Discount and promo vouchers.') },
-    { id:'pr-flight', label:'Flight Pricer', view:S('Flight Pricer','Markup, fees and rules applied to flight fares.') },
-    { id:'pr-hotel', label:'Hotels Pricer', view:S('Hotels Pricer','Markup, fees and rules applied to hotel rates.') },
-    { id:'pr-test', label:'Test Tool', view:S('Pricing Test Tool','Preview the final price for any search.') },
+    { id:'pr-vouchers', label:'Vouchers', view:viewVouchers },
+    { id:'pr-flight', label:'Flight Pricer', view:viewFlightPricer },
+    { id:'pr-hotel', label:'Hotels Pricer', view:viewHotelsPricer },
+    { id:'pr-test', label:'Test Tool', view:viewTestTool },
   ]},
   { id:'invoices', label:'Invoices', icon:'file', children:[
     { id:'inv-all', label:'All Invoices', view:viewInvoices },
     { id:'inv-create', label:'Create Invoice', view:S('Create Invoice','Raise a manual invoice for a customer or agency.') },
   ]},
   { id:'accounting', label:'Accounting', icon:'book', children:[
-    { id:'ac-accounts', label:'Accounts', view:S('Accounts','Chart of accounts.') },
-    { id:'ac-credit', label:'Credit Notes', view:S('Credit Notes','Issued credit notes.') },
-    { id:'ac-receipts', label:'Receipts', view:S('Receipts','Money received against invoices.') },
-    { id:'ac-linking', label:'Account linking', view:S('Account Linking','Map products to ledger accounts.') },
-    { id:'ac-journal', label:'Journal', view:S('Journal','Manual journal entries.') },
-    { id:'ac-balance', label:'Balance Report', view:S('Balance Report','Trial balance and balances by account.') },
-    { id:'ac-stmt', label:'Account Statement', view:S('Account Statement','Statement of account for a party.') },
+    { id:'ac-accounts', label:'Accounts', view:viewAccounts },
+    { id:'ac-credit', label:'Credit Notes', view:viewCreditNotes },
+    { id:'ac-receipts', label:'Receipts', view:viewReceipts },
+    { id:'ac-linking', label:'Account linking', view:S('Account Linking','Map products to ledger accounts. Defaults are shown under Accounts.') },
+    { id:'ac-journal', label:'Journal', view:viewJournal },
+    { id:'ac-balance', label:'Balance Report', view:viewBalance },
+    { id:'ac-stmt', label:'Account Statement', view:viewStatement },
     { id:'ac-cust', label:'Customers', view:viewCustomers },
   ]},
   { id:'customers', label:'Customers', icon:'users', view:viewCustomers },
@@ -497,6 +623,30 @@ document.addEventListener('click', async e => {
   const vs = e.target.closest('[data-visa]');
   if (vs){ const r = await patch(`/api/admin/visas/${vs.dataset.visa}`, { status: vs.dataset.status });
     toast(r.ok ? 'Visa updated' : (r.data.error || 'Update failed')); if (r.ok) route(); return; }
+  // Pricing: save markup
+  const mk = e.target.closest('[data-save-markup]');
+  if (mk){ const v = parseFloat(($('#mk-input')||{}).value || '0');
+    const r = await put('/api/admin/pricing', { product: mk.dataset.saveMarkup, markupPercent: v });
+    toast(r.ok ? `Markup saved (${v}%)` : (r.data.error || 'Save failed')); if (r.ok) route(); return; }
+  // Pricing: create voucher
+  if (e.target.id === 'v-create'){
+    const body = { code: ($('#v-code')||{}).value, kind: ($('#v-kind')||{}).value, value: ($('#v-value')||{}).value };
+    const r = await post('/api/admin/vouchers', body);
+    toast(r.ok ? 'Voucher created' : (r.data.error || 'Could not create')); if (r.ok) route(); return; }
+  // Pricing: toggle voucher
+  const vt = e.target.closest('[data-voucher-toggle]');
+  if (vt){ const r = await patch(`/api/admin/vouchers/${vt.dataset.voucherToggle}`, { active: vt.dataset.active === '1' });
+    toast(r.ok ? 'Voucher updated' : (r.data.error || 'Update failed')); if (r.ok) route(); return; }
+  // Pricing: test tool
+  if (e.target.id === 'tt-run'){
+    const city = ($('#tt-city')||{}).value || 'Dubai';
+    const ci = ($('#tt-in')||{}).value, co = ($('#tt-out')||{}).value;
+    const out = $('#tt-result'); out.innerHTML = '<div class="empty">Searching…</div>';
+    const r = await getJSON(`/api/hotels/search?city=${encodeURIComponent(city)}&checkIn=${ci}&checkOut=${co}&guests=2`);
+    if (!r.ok || !(r.data.hotels||[]).length){ out.innerHTML = '<div class="empty">No results — check the dates.</div>'; return; }
+    const rows = r.data.hotels.flatMap(h => h.rooms.map(rm => [esc(h.name), esc(rm.roomName), esc(money(rm.nightlyPrice,rm.currency)), esc(money(rm.totalPrice,rm.currency))]));
+    out.innerHTML = table(['Hotel','Room','Nightly (quoted)','Total (quoted)'], rows);
+    return; }
 });
 
 /* ------------------------------ boot ------------------------------ */

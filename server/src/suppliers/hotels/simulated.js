@@ -77,8 +77,9 @@ export function decodeRate(rateKey) {
   catch { return null; }
 }
 
-export async function search({ city, checkIn, checkOut, guests }) {
+export async function search({ city, checkIn, checkOut, guests, markupPercent = 0 }) {
   const nights = nightsBetween(checkIn, checkOut);
+  const markup = 1 + (Number(markupPercent) || 0) / 100;
   if (!city || !(nights > 0)) {
     throw Object.assign(new Error('Provide a city and a valid check-in/check-out date range'), { status: 400 });
   }
@@ -95,7 +96,7 @@ export async function search({ city, checkIn, checkOut, guests }) {
       city: cityLabel,
       rating: h.rating,
       rooms: ROOMS.map((r) => {
-        const nightly = Math.round(h.base * r.factor);
+        const nightly = Math.round(h.base * r.factor * markup);
         const total = nightly * nights;
         const rate = {
           h: h.name, c: cityLabel, r: r.roomName, b: r.board,

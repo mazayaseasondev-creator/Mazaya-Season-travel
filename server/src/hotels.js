@@ -2,6 +2,7 @@ import express from 'express';
 import { query } from './db.js';
 import { requireAuth } from './auth.js';
 import { hotelSupplier } from './suppliers/hotels/index.js';
+import { getMarkup } from './pricing.js';
 
 export const hotelsRouter = express.Router();
 
@@ -74,7 +75,8 @@ hotelsRouter.get('/search', async (req, res, next) => {
   try {
     const { city, checkIn, checkOut } = req.query;
     const guests = parseInt(req.query.guests || '2', 10);
-    const results = await hotelSupplier.search({ city, checkIn, checkOut, guests });
+    const markupPercent = await getMarkup('hotel');
+    const results = await hotelSupplier.search({ city, checkIn, checkOut, guests, markupPercent });
     res.json(results);
   } catch (e) { next(e); }
 });

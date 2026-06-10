@@ -1,9 +1,35 @@
 import express from 'express';
 import { query } from './db.js';
 import { requireAuth, requireAdmin } from './auth.js';
+import { getMarkups, setMarkup, listVouchers, createVoucher, setVoucherActive } from './pricing.js';
 
 export const adminRouter = express.Router();
 adminRouter.use(requireAuth, requireAdmin);
+
+// ---- Pricing: markup rules ----
+adminRouter.get('/pricing', async (_req, res, next) => {
+  try { res.json({ markups: await getMarkups() }); } catch (e) { next(e); }
+});
+adminRouter.put('/pricing', async (req, res, next) => {
+  try {
+    const { product, markupPercent } = req.body || {};
+    res.json(await setMarkup(product, markupPercent));
+  } catch (e) { next(e); }
+});
+
+// ---- Pricing: vouchers ----
+adminRouter.get('/vouchers', async (_req, res, next) => {
+  try { res.json({ vouchers: await listVouchers() }); } catch (e) { next(e); }
+});
+adminRouter.post('/vouchers', async (req, res, next) => {
+  try { res.status(201).json({ voucher: await createVoucher(req.body || {}) }); } catch (e) { next(e); }
+});
+adminRouter.patch('/vouchers/:id', async (req, res, next) => {
+  try {
+    if (!/^[0-9]+$/.test(req.params.id)) return res.status(404).json({ error: 'Voucher not found' });
+    res.json({ voucher: await setVoucherActive(req.params.id, req.body && req.body.active) });
+  } catch (e) { next(e); }
+});
 
 // Statuses an admin is allowed to move a request into.
 const ADMIN_SETTABLE = new Set(['in_review', 'approved', 'rejected']);
